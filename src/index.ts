@@ -1,3 +1,5 @@
+/// <reference types="vite/client" />
+
 import fs from 'fs';
 import path from 'path';
 import type { Plugin, ViteDevServer } from 'vite';
@@ -92,11 +94,13 @@ interface RouteConflict {
   files: string[];
 }
 
+export type Platform = 'netlify' | 'cloudflare' | 'deno' | 'vercel' | 'node';
+
 export interface BiniPluginOptions {
   appDir?: string;
   apiDir?: string;
   cors?: boolean;
-  platform?: 'netlify' | 'cloudflare' | 'deno' | 'vercel' | 'node';
+  platform?: Platform;
   strictMode?: boolean;
   basePath?: string;
 }
@@ -123,12 +127,21 @@ function Spinner() {
   }, []);
   
   const styles = {
+    root: {
+      margin: 0,
+      padding: 0,
+      minHeight: '100vh',
+      width: '100%',
+    },
     container: {
       minHeight: '100vh',
+      width: '100%',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: isDark ? '#000000' : '#ffffff',
+      margin: 0,
+      padding: 0,
     },
     spinnerWrapper: {
       position: 'relative' as const,
@@ -156,12 +169,16 @@ function Spinner() {
   };
   
   return (
-    <div style={styles.container}>
-      <div style={styles.spinnerWrapper}>
-        <div style={styles.outerRing} />
-        <div style={styles.spinningRing} />
+    <div style={styles.root}>
+      <div style={styles.container}>
+        <div style={styles.spinnerWrapper}>
+          <div style={styles.outerRing} />
+          <div style={styles.spinningRing} />
+        </div>
       </div>
       <style>{\`
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { margin: 0; padding: 0; }
         @keyframes spin {
           from {
             transform: rotate(0deg);
@@ -195,8 +212,15 @@ function Default404() {
   }, []);
   
   const styles = {
+    root: {
+      margin: 0,
+      padding: 0,
+      minHeight: '100vh',
+      width: '100%',
+    },
     container: {
       minHeight: '100vh',
+      width: '100%',
       display: 'flex',
       flexDirection: 'column' as const,
       alignItems: 'center',
@@ -205,6 +229,7 @@ function Default404() {
       padding: '2rem',
       backgroundColor: isDark ? '#000000' : '#ffffff',
       fontFamily: 'system-ui, -apple-system, sans-serif',
+      margin: 0,
     },
     wrapper: {
       maxWidth: '42rem',
@@ -243,23 +268,32 @@ function Default404() {
       fontSize: '0.875rem',
       fontWeight: 500,
       transition: 'opacity 0.2s',
+      cursor: 'pointer',
+      border: 'none',
     }
   };
   
   return (
-    <div style={styles.container}>
-      <div style={styles.wrapper}>
-        <div style={styles.number}>404</div>
-        <h1 style={styles.title}>Page not found</h1>
-        <p style={styles.message}>
-          The page you're looking for doesn't exist or has been moved.
-        </p>
-        <div>
-          <a href="/" style={styles.button}>
-            ← Back to home
-          </a>
+    <div style={styles.root}>
+      <div style={styles.container}>
+        <div style={styles.wrapper}>
+          <div style={styles.number}>404</div>
+          <h1 style={styles.title}>Page not found</h1>
+          <p style={styles.message}>
+            The page you're looking for doesn't exist or has been moved.
+          </p>
+          <div>
+            <a href="/" style={styles.button}>
+              ← Back to home
+            </a>
+          </div>
         </div>
       </div>
+      <style>{\`
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { margin: 0; padding: 0; }
+        a { text-decoration: none; }
+      \`}</style>
     </div>
   );
 }`;
@@ -286,18 +320,18 @@ function toPosixPath(filePath: string): string {
   return filePath.replace(/\\/g, '/');
 }
 
-function viteLog(filePath: string) {
+function viteLog(filePath: string): void {
   const time = new Date().toLocaleTimeString();
   const relativePath = toPosixPath(path.relative(process.cwd(), filePath));
   console.log(`\x1b[90m${time}\x1b[0m \x1b[36m[vite]\x1b[0m \x1b[90m(client)\x1b[0m \x1b[32mhmr update\x1b[0m \x1b[90m${relativePath}\x1b[0m`);
 }
 
-function viteErrorLog(message: string) {
+function viteErrorLog(message: string): void {
   const time = new Date().toLocaleTimeString();
   console.error(`\x1b[90m${time}\x1b[0m \x1b[31m[vite]\x1b[0m \x1b[31m${message}\x1b[0m`);
 }
 
-function viteWarnLog(message: string) {
+function viteWarnLog(message: string): void {
   const time = new Date().toLocaleTimeString();
   console.warn(`\x1b[90m${time}\x1b[0m \x1b[33m[vite]\x1b[0m \x1b[33m${message}\x1b[0m`);
 }
@@ -473,15 +507,21 @@ function isValidParamName(name: string): boolean {
   return ALLOWED_PARAM_PATTERN.test(name);
 }
 
-function normalizeRoutePath(routePath: string): string {
+function normalizeRoutePath(routePath: string, basePath: string = ''): string {
   let normalized = routePath.replace(/\/+/g, '/');
-  if (normalized === '') return '/';
+  if (normalized === '') return basePath || '/';
   if (!normalized.startsWith('/')) normalized = '/' + normalized;
   if (normalized.endsWith('/') && normalized !== '/') normalized = normalized.slice(0, -1);
+  
+  if (basePath && basePath !== '/') {
+    const cleanBasePath = basePath.replace(/\/$/, '');
+    normalized = cleanBasePath + normalized;
+  }
+  
   return normalized;
 }
 
-function scanRoutes(dir: string, appDir: string, baseRoute = '', depth = 0): RouteNode[] {
+function scanRoutes(dir: string, appDir: string, baseRoute = '', basePath: string = '', depth = 0): RouteNode[] {
   if (depth > MAX_DEPTH) {
     viteWarnLog(`Maximum directory depth reached at ${dir}`);
     return [];
@@ -517,8 +557,11 @@ function scanRoutes(dir: string, appDir: string, baseRoute = '', depth = 0): Rou
       continue;
     }
     
+    const rawPath = `${baseRoute}/${base}`;
+    const routePath = normalizeRoutePath(rawPath, basePath);
+    
     routes.push({
-      routePath: normalizeRoutePath(`${baseRoute}/${base}`),
+      routePath,
       filePath: path.join(dir, entry.name),
       layouts: resolveLayoutChain(dir, appDir),
       dynamic: false,
@@ -551,19 +594,21 @@ function scanRoutes(dir: string, appDir: string, baseRoute = '', depth = 0): Rou
       segment = entry.name;
     }
     
-    const routePath = normalizeRoutePath(`${baseRoute}/${segment}`);
+    const rawPath = `${baseRoute}/${segment}`;
+    const routePath = normalizeRoutePath(rawPath, basePath);
     const pageFile = findFile(fullPath, PAGE_FILES);
     
     if (pageFile) {
+      const fullFilePath = path.join(fullPath, pageFile);
       routes.push({
         routePath,
-        filePath: path.join(fullPath, pageFile),
+        filePath: fullFilePath,
         layouts: resolveLayoutChain(fullPath, appDir),
         dynamic: isDynamic || isCatchAll,
       });
     }
     
-    routes.push(...scanRoutes(fullPath, appDir, routePath, depth + 1));
+    routes.push(...scanRoutes(fullPath, appDir, rawPath, basePath, depth + 1));
   }
 
   return routes;
@@ -639,9 +684,13 @@ function renderChain(
   const pad = ' '.repeat(indent);
   
   if (layouts.length === 0) {
-    return routesInChain.map(r =>
-      `${pad}<Route path="${r.routePath}" element={<Suspense fallback={<${fallback} />}><ErrorBoundary><${pageNames.get(r.filePath)} /></ErrorBoundary></Suspense>} />`
-    ).join('\n');
+    return routesInChain.map(r => {
+      const pageName = pageNames.get(r.filePath);
+      if (!pageName) {
+        throw new Error(`Page name not found for ${r.filePath}`);
+      }
+      return `${pad}<Route path="${r.routePath}" element={<Suspense fallback={<${fallback} />}><ErrorBoundary><${pageName} /></ErrorBoundary></Suspense>} />`;
+    }).join('\n');
   }
   
   const [head, ...tail] = layouts;
@@ -650,11 +699,40 @@ function renderChain(
   const inner = renderChain(tail, routesInChain, layoutNames, pageNames, layoutTitles, indent + 2, fallback);
   const name = layoutNames.get(head);
   
+  if (!name) {
+    throw new Error(`Layout name not found for ${head}`);
+  }
+  
   return [
     `${pad}<Route element={<>${titleSetter}<Suspense fallback={<${fallback} />}><ErrorBoundary><${name}><Outlet /></${name}></ErrorBoundary></Suspense></>}>`,
     inner,
     `${pad}</Route>`,
   ].join('\n');
+}
+
+function renderComponentWithLayouts(
+  componentName: string,
+  layouts: string[],
+  layoutNames: Map<string, string>,
+  layoutTitles: Map<string, string>,
+  indent: number,
+  fallback: string,
+): string {
+  const pad = ' '.repeat(indent);
+  
+  if (layouts.length === 0) {
+    return `${pad}<Suspense fallback={<${fallback} />}><ErrorBoundary>${componentName}</ErrorBoundary></Suspense>`;
+  }
+  
+  const [head, ...tail] = layouts;
+  const title = layoutTitles.get(head);
+  const titleSetter = title ? `<TitleSetter title={${JSON.stringify(title)}} />` : '';
+  const name = layoutNames.get(head);
+  const inner = renderComponentWithLayouts(componentName, tail, layoutNames, layoutTitles, indent + 2, fallback);
+  
+  if (!name) return inner;
+  
+  return `${pad}<>${titleSetter}<${name}>${inner}</${name}></>`;
 }
 
 function generateErrorBoundary(ts: boolean): string {
@@ -738,15 +816,16 @@ function TitleSetter({ title }) {
 }`;
 }
 
-function generateApp(appDir: string, strictMode = false): string {
+function generateApp(appDir: string, basePath: string = '', strictMode = false): string {
   const aliases = readTsconfigAliases();
-  let routes = scanRoutes(appDir, appDir);
+  let routes = scanRoutes(appDir, appDir, '', basePath);
   const ts = isTypeScriptProject();
 
   const rootPage = findFile(appDir, PAGE_FILES);
   if (rootPage) {
+    const rootRoutePath = normalizeRoutePath('/', basePath);
     routes.unshift({
-      routePath: '/',
+      routePath: rootRoutePath,
       filePath: path.join(appDir, rootPage),
       layouts: resolveLayoutChain(appDir, appDir),
       dynamic: false,
@@ -819,16 +898,18 @@ function generateApp(appDir: string, strictMode = false): string {
     }
   }
   
-  if (hasCustomNotFound) {
-    const importPath = toImportPath(path.join(appDir, notFoundFile!), aliases);
+  const rootLayoutChain = resolveLayoutChain(appDir, appDir).filter(l => isUsableLayout(l));
+  
+  if (hasCustomNotFound && notFoundFile) {
+    const importPath = toImportPath(path.join(appDir, notFoundFile), aliases);
     if (!importedModules.has(importPath)) {
       lazyImports.push(`const NotFound = React.lazy(() => import('${importPath}'));`);
       importedModules.add(importPath);
     }
   }
   
-  if (hasCustomLoading) {
-    const importPath = toImportPath(path.join(appDir, loadingFile!), aliases);
+  if (hasCustomLoading && loadingFile) {
+    const importPath = toImportPath(path.join(appDir, loadingFile), aliases);
     if (!importedModules.has(importPath)) {
       lazyImports.push(`const Loading = React.lazy(() => import('${importPath}'));`);
       importedModules.add(importPath);
@@ -854,7 +935,10 @@ function generateApp(appDir: string, strictMode = false): string {
     if (!chainMap.has(key)) {
       chainMap.set(key, { layouts: r.layouts, routes: [] });
     }
-    chainMap.get(key)!.routes.push(r);
+    const group = chainMap.get(key);
+    if (group) {
+      group.routes.push(r);
+    }
   }
 
   const routeLines: string[] = [];
@@ -864,28 +948,29 @@ function generateApp(appDir: string, strictMode = false): string {
     routeLines.push(renderChain(layouts, cr, layoutNames, pageNames, layoutTitles, 8, fallbackComponent));
   }
 
-  const catchAllRoute = hasCustomNotFound
-    ? `        <Route path="*" element={<Suspense fallback={<${fallbackComponent} />}><NotFound /></Suspense>} />`
-    : `        <Route path="*" element={<Default404 />} />`;
+  let catchAllRoute: string;
+  if (hasCustomNotFound) {
+    const wrappedNotFound = renderComponentWithLayouts(
+      '<NotFound />',
+      rootLayoutChain,
+      layoutNames,
+      layoutTitles,
+      10,
+      fallbackComponent
+    );
+    catchAllRoute = `        <Route path="*" element={${wrappedNotFound}} />`;
+  } else {
+    catchAllRoute = `        <Route path="*" element={<Default404 />} />`;
+  }
 
   const errorBoundaryClass = generateErrorBoundary(ts);
   const titleSetterFn = generateTitleSetter(ts);
   const spinnerFn = !hasCustomLoading ? DEFAULT_LOADING_COMPONENT : '';
 
-  return `// ⚠️  Auto-generated by bini-router — do not edit.
+  // Fix: Properly handle basePath with parentheses to avoid operator mixing
+  const basenameValue = basePath || (import.meta as any).env?.BASE_URL || '/';
 
-// Type declarations for Vite environment
-declare global {
-  interface ImportMetaEnv {
-    readonly BASE_URL: string;
-    readonly DEV: boolean;
-    readonly PROD: boolean;
-    readonly MODE: string;
-  }
-  interface ImportMeta {
-    readonly env: ImportMetaEnv;
-  }
-}
+  return `// ⚠️  Auto-generated by bini-router — do not edit.
 
 import React, { Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Outlet } from 'react-router-dom';
@@ -903,7 +988,7 @@ ${!hasCustomNotFound ? DEFAULT_404_COMPONENT : ''}
 
 export default function App() {
   return (
-    <BrowserRouter basename={import.meta.env.BASE_URL ?? '/'}>
+    <BrowserRouter basename={${JSON.stringify(basenameValue)}}>
       <Routes>
 ${routeLines.join('\n')}
 ${catchAllRoute}
@@ -1086,7 +1171,7 @@ function extractIconArray(str: string, type: string): IconEntry[] {
 
 // ─── API Route Scanner ───────────────────────────────────────────────────────
 
-function scanApiRoutes(dir: string, baseRoute = '', depth = 0): ApiRoute[] {
+function scanApiRoutes(dir: string, baseRoute = '', basePath: string = '', depth = 0): ApiRoute[] {
   if (depth > MAX_DEPTH) {
     viteWarnLog(`Maximum API directory depth reached at ${dir}`);
     return [];
@@ -1129,7 +1214,7 @@ function scanApiRoutes(dir: string, baseRoute = '', depth = 0): ApiRoute[] {
         segment = entry.name;
       }
       
-      routes.push(...scanApiRoutes(fullPath, `${baseRoute}/${segment}`, depth + 1));
+      routes.push(...scanApiRoutes(fullPath, `${baseRoute}/${segment}`, basePath, depth + 1));
       continue;
     }
 
@@ -1140,27 +1225,28 @@ function scanApiRoutes(dir: string, baseRoute = '', depth = 0): ApiRoute[] {
     const isCatchAll = base.startsWith('[...') && base.endsWith(']');
     const isDynamic = base.startsWith('[') && base.endsWith(']');
     
-    let routePath: string;
+    let rawRoutePath: string;
     if (isCatchAll) {
-      routePath = `${baseRoute}/*`;
+      rawRoutePath = `${baseRoute}/*`;
     } else if (base === 'index') {
-      routePath = baseRoute || '/';
+      rawRoutePath = baseRoute || '/';
     } else if (isDynamic) {
       const paramName = base.slice(1, -1);
       if (!isValidParamName(paramName)) {
         viteWarnLog(`Invalid API parameter name: ${paramName}`);
         continue;
       }
-      routePath = `${baseRoute}/:${paramName}`;
+      rawRoutePath = `${baseRoute}/:${paramName}`;
     } else {
       if (!isValidRouteSegment(base)) {
         viteWarnLog(`Invalid API route name: ${base}`);
         continue;
       }
-      routePath = `${baseRoute}/${base}`;
+      rawRoutePath = `${baseRoute}/${base}`;
     }
 
-    routes.push({ routePath: normalizeRoutePath(routePath), filePath: fullPath });
+    const routePath = normalizeRoutePath(rawRoutePath, basePath);
+    routes.push({ routePath, filePath: fullPath });
   }
 
   return routes;
@@ -1245,7 +1331,7 @@ async function handleApiRequest(
   enableCors: boolean,
   getCache: () => { routes: ApiRoute[] } | null,
   setCache: (v: { routes: ApiRoute[] }) => void,
-) {
+): Promise<void> {
   try {
     const allowedMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'];
     if (!allowedMethods.includes(req.method)) {
@@ -1274,6 +1360,13 @@ async function handleApiRequest(
     const host = req.headers.host ?? 'localhost';
     const protocol = req.headers['x-forwarded-proto'] ?? 'http';
     const url = `${protocol}://${host}${req.url}`;
+    
+    if (!url) {
+      res.statusCode = 400;
+      res.end('Invalid URL');
+      return;
+    }
+    
     const pathname = new URL(url).pathname;
 
     if (pathname.includes('..') || pathname.includes('//')) {
@@ -1375,8 +1468,6 @@ async function handleApiRequest(
 
 // ─── Production Entry Generator ─────────────────────────────────────────────
 
-type Platform = 'netlify' | 'cloudflare' | 'deno' | 'vercel' | 'node';
-
 interface AdapterConfig {
   pkg?: string;
   importLine?: string;
@@ -1420,6 +1511,11 @@ const ADAPTERS: Record<Exclude<Platform, 'node'>, AdapterConfig> = {
 };
 
 function checkAdapter(platform: Exclude<Platform, 'node'>): void {
+  // Skip package verification for Deno and Netlify (they use CDN imports)
+  if (platform === 'deno' || platform === 'netlify') {
+    return;
+  }
+  
   const adapter = ADAPTERS[platform];
   if (!adapter.pkg) return;
   
@@ -1462,6 +1558,8 @@ function buildRouteImports(
 
   for (let i = 0; i < routes.length; i++) {
     const route = routes[i];
+    if (!route) continue;
+    
     const imp = resolveEntryImportPath(route.filePath, outFile, usesDenoRuntime);
     
     if (importedModules.has(imp)) continue;
@@ -1485,7 +1583,7 @@ function buildRouteImports(
     if (isHonoApp) {
       mountings.push(`app.route('/', ${name});`);
     } else {
-      const mountPath = stripsApiPrefix ? route.routePath : `/api${route.routePath}`;
+      const mountPath = stripsApiPrefix ? (route.routePath ?? '/') : `/api${route.routePath ?? '/'}`;
       mountings.push(`app.all('${mountPath}', async (c) => { 
     try {
       const r = await ${name}(c.req.raw);
@@ -1520,10 +1618,10 @@ function buildRouteImports(
   return { imports, mountings, corsLine, corsImport };
 }
 
-function buildProductionEntry(srcApiDir: string, platform: Exclude<Platform, 'node'>, enableCors: boolean): void {
+function buildProductionEntry(srcApiDir: string, platform: Exclude<Platform, 'node'>, enableCors: boolean, basePath: string = ''): void {
   if (!fs.existsSync(srcApiDir)) return;
 
-  const routes = scanApiRoutes(srcApiDir);
+  const routes = scanApiRoutes(srcApiDir, '/api', basePath);
   if (routes.length === 0) {
     viteWarnLog('No API routes found, skipping production entry generation');
     return;
@@ -1729,8 +1827,8 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin {
     basePath = ''
   } = options;
 
-  const getAppDir = () => path.join(process.cwd(), options.appDir ?? 'src/app');
-  const getApiDir = () => path.join(process.cwd(), options.apiDir ?? 'src/app/api');
+  const getAppDir = (): string => path.join(process.cwd(), options.appDir ?? 'src/app');
+  const getApiDir = (): string => path.join(process.cwd(), options.apiDir ?? 'src/app/api');
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let lastGeneratedCode = '';
@@ -1778,7 +1876,7 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin {
       const dir = getAppDir();
       if (!fs.existsSync(dir)) return null;
       
-      const code = generateApp(dir, strictMode);
+      const code = generateApp(dir, basePath, strictMode);
       if (code === lastGeneratedCode) return null;
       
       const appFile = getAppFile();
@@ -1798,7 +1896,7 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin {
     }
   }
 
-  function scheduleRegen(server: ViteDevServer, delay = DEBOUNCE_MS) {
+  function scheduleRegen(server: ViteDevServer, delay = DEBOUNCE_MS): void {
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
@@ -1808,7 +1906,7 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin {
     }, delay);
   }
 
-  function addSpaFallback(server: { middlewares: any }) {
+  function addSpaFallback(server: { middlewares: any }): void {
     server.middlewares.use((req: any, res: any, next: any) => {
       const url = req.url as string;
       if (url.startsWith('/api') || url.includes('.') || url === '/index.html') {
@@ -1823,7 +1921,7 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin {
     name: 'bini-router',
     enforce: 'pre',
 
-    configResolved(config) {
+    configResolved(config): void {
       resolvedCommand = config.command;
     },
 
@@ -1854,18 +1952,18 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin {
       },
     },
 
-    config() {
+    config(): void {
       applyApp();
     },
     
-    buildStart() {
+    buildStart(): void {
       applyApp();
     },
 
-    closeBundle() {
+    closeBundle(): void {
       if (platform && platform !== 'node' && resolvedCommand === 'build') {
         try {
-          buildProductionEntry(getApiDir(), platform as Exclude<Platform, 'node'>, enableCors);
+          buildProductionEntry(getApiDir(), platform as Exclude<Platform, 'node'>, enableCors, basePath);
         } catch (error) {
           viteErrorLog(`Failed to build production entry: ${error instanceof Error ? error.message : String(error)}`);
           if (strictMode) throw error;
@@ -1873,7 +1971,7 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin {
       }
     },
 
-    buildEnd() {
+    buildEnd(): void {
       honoCache = null;
       moduleCache.clear();
       if (debounceTimer) {
@@ -1882,7 +1980,7 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin {
       }
     },
 
-    async configureServer(server) {
+    async configureServer(server): Promise<void> {
       const appDir = getAppDir();
       const apiDir = getApiDir();
 
@@ -1951,7 +2049,7 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin {
       if (fs.existsSync(apiDir)) {
         server.watcher.add(apiDir);
 
-        const resetApi = (f?: string) => {
+        const resetApi = (f?: string): void => {
           honoCache = null;
           if (f) moduleCache.delete(f);
           server.ws.send({ type: 'full-reload', path: '*' });
@@ -1986,7 +2084,7 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin {
       }
     },
 
-    async configurePreviewServer(server) {
+    async configurePreviewServer(server): Promise<void> {
       try {
         await loadEnv(process.cwd());
       } catch (error) {
@@ -2007,7 +2105,7 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin {
 
     transformIndexHtml: {
       order: 'pre',
-      handler(html) {
+      handler(html): string {
         try {
           const meta = parseAppMetadata(getAppDir());
 
@@ -2079,3 +2177,6 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin {
     },
   };
 }
+
+// Re-export types for external use
+export type { Plugin, ViteDevServer } from 'vite';

@@ -9,7 +9,8 @@ export default defineConfig({
   splitting: false,
   treeshake: true,
   shims: true,
-  target: 'node18',
+  target: 'node20',  // Updated from node18 to node20 (matches your package.json engines)
+  platform: 'node',
   external: [
     // vite
     'vite',
@@ -41,5 +42,6 @@ export default defineConfig({
   ],
   esbuildOptions(options) {
     options.platform = 'node';
+    options.target = 'node20';  // Explicitly set target
   },
 });

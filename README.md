@@ -84,7 +84,7 @@ export default defineConfig({
 
 ## Auto-imports
 
-bini-router automatically injects imports into every page and layout file under `src/app/`. You never need to write import statements for these:
+bini-router automatically injects imports into every page and layout file under `src/app/` (excluding `src/app/api/`). You never need to write import statements for these:
 
 **From `react`:**
 ```ts
@@ -122,6 +122,8 @@ export default function Profile() {
 
 > If you already import from one of these packages manually, bini-router detects it and skips injection — no duplicates ever.
 
+> Auto-imports are only injected into files inside `src/app/` that are not in `src/app/api/`, and not the auto-generated `App.tsx` / `App.jsx` file itself.
+
 ---
 
 ## Environment Variables
@@ -156,7 +158,7 @@ bini-router supports both JavaScript and TypeScript projects out of the box — 
 **Auto-detection order:**
 1. Checks for `src/main.tsx` or `src/main.ts` / `src/main.jsx` or `src/main.js`
 2. Falls back to checking for a `tsconfig.json` at the project root
-3. Falls back to scanning `src/app/` recursively for any `.ts` / `.tsx` files
+3. Falls back to scanning `src/app/` recursively (up to 5 levels deep) for any `.ts` / `.tsx` files
 
 | | TypeScript project | JavaScript project |
 | ------------------------ | ------------------ | ------------------ |
@@ -199,7 +201,8 @@ src/
 ```
 
 > Files and directories prefixed with `_` or `.` are ignored by the router.  
-> The `api/` directory is excluded from page route scanning.
+> The `api/` directory is excluded from page route scanning.  
+> Directory traversal is capped at 100 levels deep.
 
 ---
 
@@ -212,6 +215,8 @@ export default function Dashboard() {
   return <h1>Dashboard</h1>
 }
 ```
+
+Pages are scanned from flat files in a directory (e.g. `about.tsx` → `/about`) **and** from `page.*` files inside named subdirectories. Both forms are supported simultaneously.
 
 ### Dynamic routes
 
@@ -233,13 +238,13 @@ export default function Docs() {
 }
 ```
 
-> Route priority: static routes are matched before dynamic ones; dynamic routes before catch-alls.
+> Route priority: static routes are matched before dynamic ones; dynamic routes before catch-alls. Routes are sorted by this priority and then by path length (shortest first).
 
 ---
 
 ## Layouts
 
-Layouts wrap all pages in their directory and subdirectories. bini-router walks up the directory tree from each page to collect the full layout chain.
+Layouts wrap all pages in their directory and subdirectories. bini-router walks up the directory tree from each page to collect the full layout chain, stopping at the `appDir` root.
 
 ```tsx
 // src/app/layout.tsx — root layout
@@ -271,13 +276,15 @@ export default function DashboardLayout() {
 
 > **Root layout** uses `{children}` — it wraps `<BrowserRouter>` from outside.  
 > **Nested layouts** use `<Outlet />` — they are React Router route wrappers.  
-> Layouts that contain an `<html>` tag are automatically excluded from the chain (treated as HTML shell files, not route layouts).
+> Layouts that contain an `<html>` tag are automatically excluded from the chain (treated as HTML shell files, not route layouts).  
+> Layouts without a default export are also excluded from the chain.  
+> Circular layout dependencies are detected and throw a `CircularLayoutError`.
 
 ---
 
 ## Custom Loading Screen
 
-Create `src/app/loading.tsx` with a default export to replace the built-in spinner. bini-router automatically detects and uses it as the Suspense fallback for every lazy-loaded route.
+Create `src/app/loading.tsx` with a default export to replace the built-in spinner. bini-router automatically detects and uses it as the Suspense fallback for **every** lazy-loaded route and layout.
 
 ```tsx
 // src/app/loading.tsx
@@ -290,7 +297,7 @@ export default function Loading() {
 }
 ```
 
-If the file exists but has no default export, the built-in spinner is used automatically. The built-in spinner is dark-mode aware and adapts to your `<html>` class or `prefers-color-scheme`.
+If the file exists but has no default export, the built-in spinner is used automatically. The built-in spinner is dark-mode aware — it reads `document.documentElement.classList` for a `dark` class and falls back to `prefers-color-scheme`, with a `MutationObserver` for live theme switching.
 
 ---
 
@@ -308,15 +315,15 @@ export default function NotFound() {
 }
 ```
 
-A built-in 404 page is rendered automatically if `not-found.tsx` is absent or has no default export.
+A built-in 404 page is rendered automatically if `not-found.tsx` is absent or has no default export. If a custom `not-found.tsx` exists, it is wrapped with the root layout chain (same layouts that wrap `/`) before being rendered at `path="*"`.
 
 ---
 
 ## Metadata
 
-Export `metadata` from any `layout.tsx`. Root layout metadata is injected into `index.html` at build time. Nested layout titles update `document.title` at runtime via a `TitleSetter` component rendered inside the layout's Suspense boundary.
+Export `metadata` from any `layout.tsx`. Root layout metadata is injected into `index.html` at build time via `transformIndexHtml`. Nested layout titles update `document.title` at runtime via a `TitleSetter` component rendered inside the layout's Suspense boundary.
 
-> `export const metadata` is automatically stripped from the browser bundle — it never ships to the client.
+> `export const metadata` is automatically stripped from the browser bundle by the `transform` hook — it never ships to the client.
 
 ```ts
 export const metadata = {
@@ -352,13 +359,15 @@ export const metadata = {
 }
 ```
 
-All fields are optional. Only the root `layout.tsx` metadata is used for `index.html` injection.
+All fields are optional. Only the root `layout.tsx` metadata is used for `index.html` injection. All metadata values are HTML-escaped before injection.
 
 ---
 
 ## API Routes
 
 Write your API files in `src/app/api/`. bini-router serves them automatically in dev (`vite dev`) and preview (`vite preview`), and generates a production entry file on `vite build` when `platform` is set.
+
+API handlers are loaded on-demand and cached by `mtime` — touching a file in dev busts the cache immediately without a server restart.
 
 ### Hono app (recommended)
 
@@ -387,6 +396,8 @@ app.post('/email', async (c) => {
 export default app
 ```
 
+> Hono apps are detected by checking for `from 'hono'` in the file source. Detected Hono apps are mounted with `app.route('/', handler)` in the production entry — they manage their own path prefixes.
+
 ### Plain function handlers
 
 ```ts
@@ -411,7 +422,9 @@ export default app
 
 ### CORS
 
-CORS is enabled by default for all `/api/*` routes in dev and preview. Set `cors: false` to disable. In production, CORS headers are added to the generated entry file automatically when `cors: true` (the default).
+CORS is enabled by default for all `/api/*` routes in dev and preview. The following methods are allowed: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `HEAD`. Preflight `OPTIONS` requests are handled automatically with a `204` response and a 24-hour `Access-Control-Max-Age`.
+
+Set `cors: false` to disable. In production, CORS headers are added to the generated entry file automatically when `cors: true` (the default).
 
 ```ts
 biniroute({ cors: false })
@@ -421,7 +434,7 @@ biniroute({ cors: false })
 
 ## Deployment
 
-Set `platform` once in `vite.config.ts`. bini-router generates the production entry file automatically during `vite build` (in the `closeBundle` hook).
+Set `platform` once in `vite.config.ts`. bini-router generates the production entry file automatically during `vite build` in the `closeBundle` hook.
 
 ```ts
 biniroute({ platform: 'netlify' })
@@ -435,7 +448,7 @@ biniroute({ platform: 'netlify' })
 biniroute({ platform: 'netlify' })
 ```
 
-Generates `netlify/edge-functions/api.ts` using Deno CDN URL imports — no npm deps needed in the edge function.
+Generates `netlify/edge-functions/api.ts` using Deno CDN URL imports (`hono@v4.3.11`) — no npm deps needed in the edge function.
 
 Add `netlify.toml`:
 
@@ -462,7 +475,7 @@ Add `netlify.toml`:
 biniroute({ platform: 'vercel' })
 ```
 
-Generates `api/index.ts` as a Vercel Edge Function with `export const config = { runtime: 'edge' }`.
+Generates `api/index.ts` (or `api/index.js`) as a Vercel Edge Function with `export const config = { runtime: 'edge' }`.
 
 Add `vercel.json`:
 
@@ -491,7 +504,7 @@ Add `vercel.json`:
 biniroute({ platform: 'cloudflare' })
 ```
 
-Generates `worker.ts` with a built-in SPA fallback — assets are served first, and all unmatched paths fall through to `index.html` for React Router. Requires a `wrangler.toml` with the `ASSETS` binding.
+Generates `worker.ts` (or `worker.js`) with a built-in SPA fallback — the `ASSETS` binding serves static files first, and all unmatched paths fall through to `index.html` for React Router. Requires a `wrangler.toml` with the `ASSETS` binding.
 
 Add `wrangler.toml`:
 
@@ -513,7 +526,7 @@ vite build && npx wrangler deploy
 
 ### 🚂 Node.js (Railway, Render, Fly.io, VPS)
 
-Node.js serving is handled by [bini-server](https://www.npmjs.com/package/bini-server) — no entry file is generated. Setting `platform: 'node'` is accepted but produces no output.
+Node.js serving is handled by [bini-server](https://www.npmjs.com/package/bini-server) — no entry file is generated by bini-router. Setting `platform: 'node'` is accepted but produces no output.
 
 ```bash
 vite build && npm start
@@ -527,11 +540,31 @@ vite build && npm start
 biniroute({ platform: 'deno' })
 ```
 
-Generates `server/index.ts` (or `server/index.js` for JS projects) using Deno CDN imports and `Deno.serve`. Port defaults to `3000` or reads from the `PORT` environment variable.
+Generates `server/index.ts` (or `server/index.js`) using Deno CDN imports (`hono@v4.3.11`) and `Deno.serve`. Port defaults to `3000` or reads from the `PORT` environment variable.
 
 ```bash
 vite build && deno run --allow-net --allow-read --sloppy-imports server/index.ts
 ```
+
+---
+
+## Base Path
+
+Use `basePath` when your app is deployed under a subpath (e.g. `/app`, `/v2`). bini-router prepends it to every page route, API route, and the `BrowserRouter` basename automatically.
+
+```ts
+// vite.config.ts
+biniroute({ basePath: '/app' })
+```
+
+With `basePath: '/app'`:
+
+- `src/app/page.tsx` → `/app`
+- `src/app/dashboard/page.tsx` → `/app/dashboard`
+- `src/app/api/users.ts` → `/app/api/users`
+- `BrowserRouter basename` is set to `"/app"` at build time
+
+> Without `basePath` set, `basename` defaults to `"/"`.
 
 ---
 
@@ -545,6 +578,8 @@ biniroute({
   platform  : 'netlify',      // 'netlify' | 'vercel' | 'cloudflare' | 'deno' | 'node'
                               //   generates production entry on build (except 'node')
   strictMode: true,           // Throw on route conflicts. Default: true
+  basePath  : '',             // Subpath prefix for all routes. Default: ''
+                              //   e.g. '/app' → all routes prefixed with /app
 })
 ```
 
@@ -552,7 +587,7 @@ biniroute({
 
 ## Error Boundaries
 
-Every layout is wrapped in a built-in `ErrorBoundary`. In development, runtime errors are reported via a `__bini_error__` CustomEvent on `window` so dev overlays can display them. In production, a fallback UI is rendered with a "Try again" button that resets the boundary.
+Every layout is wrapped in a built-in `ErrorBoundary`. In development, runtime errors are dispatched as a `__bini_error__` CustomEvent on `window` (consumed by bini-overlay) so dev overlays can display them — the boundary itself renders `null` in dev so the overlay takes over the screen. In production, a fallback UI is rendered with a "Try again" button that resets the boundary state.
 
 ---
 
@@ -561,12 +596,13 @@ Every layout is wrapped in a built-in `ErrorBoundary`. In development, runtime e
 bini-router watches `src/app/` during development and regenerates `App.tsx` automatically.
 
 - **New file** → regenerates after 300ms debounce
-- **New folder** → watched instantly, regenerates if a `page.*` file appears
+- **New folder** → watched instantly; regenerates after 300ms if a `page.*` file appears within 300ms
 - **Changed file** → regenerates after 60ms debounce
 - **Deleted file or folder** → removed from routes and triggers reload
-- **Root layout change** → full module graph invalidation
-- **API file change** → clears module and route cache, triggers full reload
-- Events are deduplicated within a 500ms window (TTL: 2s) to prevent redundant reloads
+- **Root layout change** → full module graph invalidation + full reload
+- **API file change** → clears module cache entry and route cache, triggers full reload
+- Events are deduplicated within a 500ms window per `file:event` key (TTL: 2s) to prevent redundant reloads
+- Code generation is guarded by an `isGenerating` flag — concurrent regenerations are dropped, not queued
 
 > You never need to restart the dev server when adding or removing routes.
 
@@ -576,9 +612,11 @@ bini-router watches `src/app/` during development and regenerates `App.tsx` auto
 
 bini-router validates all route segment names and dynamic parameter names at scan time:
 
-- Segment names must match `[a-zA-Z0-9_-]` and be under 100 characters
-- Parameter names (inside `[brackets]`) must match `[a-zA-Z_][a-zA-Z0-9_]*`
+- Segment names must match `/^[a-zA-Z0-9_-]+$/` and be under 100 characters
+- Parameter names (inside `[brackets]`) must match `/^[a-zA-Z_][a-zA-Z0-9_]*$/`
+- Paths containing `..` or `//` are rejected (path traversal guard)
 - Invalid names are skipped with a warning — they never cause a crash
+- Decoded URL parameter values are also checked for `..` and `//` at request time
 
 ---
 
