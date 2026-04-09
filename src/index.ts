@@ -1693,28 +1693,46 @@ function buildProductionEntry(srcApiDir: string, platform: Exclude<Platform, 'no
     lines.push(corsLine);
   }
   
+  // Add API routes FIRST
   lines.push(...mountings);
   lines.push(``);
   
+  // Add static file serving for Deno (AFTER API routes)
   if (platform === 'deno') {
     lines.push(...[
       `// Serve static files from dist (must come AFTER API routes)`,
       `app.get('/*', async (c) => {`,
+      `  // Skip API routes - let them be handled first`,
+      `  if (c.req.path.startsWith('/api/')) {`,
+      `    return c.text('API route not found', 404);`,
+      `  }`,
+      `  `,
+      `  const filePath = c.req.path === '/' ? '/index.html' : c.req.path;`,
+      `  `,
       `  try {`,
-      `    const path = c.req.path === '/' ? '/index.html' : c.req.path;`,
-      `    const file = await Deno.readFile(\`./dist\${path}\`);`,
-      `    const ext = path.split('.').pop();`,
-      `    const contentType = ext === 'html' ? 'text/html' :`,
-      `                       ext === 'css' ? 'text/css' :`,
-      `                       ext === 'js' ? 'application/javascript' :`,
-      `                       'text/plain';`,
-      `    return new Response(file, { headers: { 'Content-Type': contentType } });`,
+      `    const file = await Deno.readFile(\`./dist\${filePath}\`);`,
+      `    const ext = filePath.split('.').pop();`,
+      `    const contentType = `,
+      `      ext === 'html' ? 'text/html' :`,
+      `      ext === 'css' ? 'text/css' :`,
+      `      ext === 'js' ? 'application/javascript' :`,
+      `      ext === 'json' ? 'application/json' :`,
+      `      ext === 'png' ? 'image/png' :`,
+      `      ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' :`,
+      `      'text/plain';`,
+      `    `,
+      `    return new Response(file, {`,
+      `      headers: { 'Content-Type': contentType }`,
+      `    });`,
       `  } catch {`,
+      `    // SPA fallback`,
       `    try {`,
       `      const indexHtml = await Deno.readFile('./dist/index.html');`,
-      `      return new Response(indexHtml, { headers: { 'Content-Type': 'text/html' } });`,
+      `      return new Response(indexHtml, {`,
+      `        headers: { 'Content-Type': 'text/html' }`,
+      `      });`,
       `    } catch {`,
-      `      return new Response('File not found', { status: 404 });`,
+      `      return c.text('File not found', 404);`,
       `    }`,
       `  }`,
       `});`,
