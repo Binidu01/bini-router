@@ -246,6 +246,8 @@ export default function Docs() {
 
 Layouts wrap all pages in their directory and subdirectories. bini-router walks up the directory tree from each page to collect the full layout chain, stopping at the `appDir` root.
 
+All layouts — including the root layout — are rendered as React Router `<Route element>` wrappers using `<Outlet />`. The root layout receives child routes via `<Outlet />` exactly like nested layouts do.
+
 ```tsx
 // src/app/layout.tsx — root layout
 export const metadata = {
@@ -253,13 +255,13 @@ export const metadata = {
   description: 'Built with bini-router',
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return <>{children}</>
+export default function RootLayout() {
+  return <Outlet />
 }
 ```
 
 ```tsx
-// src/app/dashboard/layout.tsx — nested layout (Outlet auto-imported)
+// src/app/dashboard/layout.tsx — nested layout
 export const metadata = {
   title: 'Dashboard',
 }
@@ -274,8 +276,6 @@ export default function DashboardLayout() {
 }
 ```
 
-> **Root layout** uses `{children}` — it wraps `<BrowserRouter>` from outside.  
-> **Nested layouts** use `<Outlet />` — they are React Router route wrappers.  
 > Layouts that contain an `<html>` tag are automatically excluded from the chain (treated as HTML shell files, not route layouts).  
 > Layouts without a default export are also excluded from the chain.  
 > Circular layout dependencies are detected and throw a `CircularLayoutError`.
@@ -376,7 +376,7 @@ API handlers are loaded on-demand and cached by `mtime` — touching a file in d
 import { Hono } from 'hono'
 import nodemailer from 'nodemailer'
 
-const app = new Hono().basePath('/api')
+const app = new Hono()
 
 const transporter = nodemailer.createTransport({
   host: 'smtp-relay.brevo.com',
@@ -396,7 +396,7 @@ app.post('/email', async (c) => {
 export default app
 ```
 
-> Hono apps are detected by checking for `from 'hono'` in the file source. Detected Hono apps are mounted with `app.route('/', handler)` in the production entry — they manage their own path prefixes.
+> Hono apps are detected by checking for `from 'hono'` in the file source. Do **not** call `.basePath('/api')` — bini-router already mounts the app under `/api` in the production entry. Adding it yourself will result in double-prefixed routes (`/api/api/...`).
 
 ### Plain function handlers
 
@@ -415,7 +415,7 @@ Route params are passed via the `x-bini-params` request header as a JSON string 
 // src/app/api/posts/[id].ts
 import { Hono } from 'hono'
 
-const app = new Hono().basePath('/api')
+const app = new Hono()
 app.get('/posts/:id', (c) => c.json({ id: c.req.param('id') }))
 export default app
 ```
@@ -449,6 +449,8 @@ biniroute({ platform: 'netlify' })
 ```
 
 Generates `netlify/edge-functions/api.ts` using Deno CDN URL imports (`hono@v4.3.11`) — no npm deps needed in the edge function.
+
+> ⚠️ **Netlify Edge Functions run on the Deno runtime, not Node.js.** Node-specific packages like `nodemailer`, `fs`, `path`, or anything that depends on Node built-ins will not work. Use Deno-compatible or Web API alternatives instead (e.g. `fetch` for HTTP, Deno CDN imports for utilities).
 
 Add `netlify.toml`:
 
@@ -518,9 +520,7 @@ directory = "./dist"
 binding = "ASSETS"
 ```
 
-```bash
-vite build && npx wrangler deploy
-```
+Run `vite build` — the worker file is generated automatically and picked up by the Cloudflare dashboard on deploy.
 
 ---
 
@@ -542,9 +542,20 @@ biniroute({ platform: 'deno' })
 
 Generates `server/index.ts` (or `server/index.js`) using Deno CDN imports (`hono@v4.3.11`) and `Deno.serve`. Port defaults to `3000` or reads from the `PORT` environment variable.
 
-```bash
-vite build && deno run --allow-net --allow-read --sloppy-imports server/index.ts
-```
+> ⚠️ **Deno Deploy does not run Node.js.** Node-specific packages like `nodemailer`, `fs`, `path`, or anything that depends on Node built-ins will not work. Use Deno-compatible or Web API alternatives instead (e.g. `fetch` for HTTP, Deno CDN imports for utilities).
+
+> ⚠️ **Deno Deploy reads `server/` before the build step runs.** You must commit the generated file:
+>
+> ```bash
+> git add server/index.ts
+> git commit -m "chore: update deno server entry"
+> git push
+> ```
+
+In Deno Console, set:
+- **Entrypoint**: `server/index.ts`
+- **Build Command**: `vite build`
+- **Runtime**: Dynamic App
 
 ---
 
@@ -564,7 +575,7 @@ With `basePath: '/app'`:
 - `src/app/api/users.ts` → `/app/api/users`
 - `BrowserRouter basename` is set to `"/app"` at build time
 
-> Without `basePath` set, `basename` defaults to `"/"`.
+> Without `basePath` set, `basename` falls back to `import.meta.env.BASE_URL` and then `"/"`.
 
 ---
 

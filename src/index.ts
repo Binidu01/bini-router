@@ -1488,7 +1488,7 @@ const ADAPTERS: Record<Exclude<Platform, 'node'>, AdapterConfig> = {
     pkg: 'hono',
     importLine: `import { Hono } from 'https://deno.land/x/hono@v4.3.11/mod.ts';\nimport { handle } from 'https://deno.land/x/hono@v4.3.11/adapter/netlify/index.ts';`,
     exportLine: `export default handle(app);`,
-    outFile: (cwd) => path.join(cwd, 'netlify', 'edge-functions', 'api.ts'),
+    outFile: (cwd, ts) => path.join(cwd, 'netlify', 'edge-functions', ts ? 'api.ts' : 'api.js'),
     stripsApiPrefix: false,
     usesDenoRuntime: true,
   },
@@ -1767,21 +1767,30 @@ function buildProductionEntry(srcApiDir: string, platform: Exclude<Platform, 'no
     console.log(`\x1b[90m${new Date().toLocaleTimeString()}\x1b[0m \x1b[36m[vite]\x1b[0m \x1b[32m✓ Generated\x1b[0m \x1b[90m${toPosixPath(path.relative(cwd, outFile))}\x1b[0m`);
 
     if (platform === 'vercel') {
+      const serverFile = path.relative(cwd, outFile);
       console.log(`\n\x1b[90m${new Date().toLocaleTimeString()}\x1b[0m \x1b[33m[vite]\x1b[0m \x1b[33m⚠️  Vercel platform detected.\x1b[0m`);
-      console.log(`  Vercel reads your api/ directory BEFORE the build step runs.\n  You must commit the generated file to your repository:\n\n    git add ${toPosixPath(path.relative(cwd, outFile))}\n    git commit -m "chore: update vercel api entry"\n    git push\n\n  Without this step, Vercel will not find your API routes.\n`);
-    }
-    
-    if (platform === 'cloudflare') {
-      console.log(`\n\x1b[90m${new Date().toLocaleTimeString()}\x1b[0m \x1b[36m[vite]\x1b[0m \x1b[32m✓ Cloudflare Worker generated successfully\x1b[0m \x1b[90m${toPosixPath(path.relative(cwd, outFile))}\x1b[0m\n  The worker includes SPA fallback for React Router.\n  Make sure your wrangler.toml has the ASSETS binding configured.\n`);
+      console.log(`  Vercel reads your api/ directory BEFORE the build step runs.\n  You must commit the generated file to your repository:\n\n    git add ${toPosixPath(serverFile)}\n    git commit -m "chore: update vercel api entry"\n    git push\n\n  Without this step, Vercel will not find your API routes.\n`);
     }
     
     if (platform === 'deno') {
-      console.log(`\n\x1b[90m${new Date().toLocaleTimeString()}\x1b[0m \x1b[36m[vite]\x1b[0m \x1b[32m✓ Deno server generated successfully\x1b[0m \x1b[90m${toPosixPath(path.relative(cwd, outFile))}\x1b[0m\n  To run your Deno server:\n    deno run --allow-net --allow-read --allow-env ${toPosixPath(path.relative(cwd, outFile))}\n`);
+      const serverFile = path.relative(cwd, outFile);
+      console.log(`\n\x1b[90m${new Date().toLocaleTimeString()}\x1b[0m \x1b[33m[vite]\x1b[0m \x1b[33m⚠️  Deno Deploy platform detected.\x1b[0m`);
+      console.log(`  Deno Deploy reads your server/ directory BEFORE the build step runs.\n  You must commit the generated file to your repository:\n\n    git add ${toPosixPath(serverFile)}\n    git commit -m "chore: update deno server entry"\n    git push\n\n  Without this step, Deno Deploy will not find your API routes.\n`);
+      console.log(`  In Deno Console, set:\n    - Entrypoint: ${toPosixPath(serverFile)}\n    - Build Command: vite build\n    - Runtime: Dynamic App\n`);
     }
     
     if (platform === 'netlify') {
-      console.log(`\n\x1b[90m${new Date().toLocaleTimeString()}\x1b[0m \x1b[36m[vite]\x1b[0m \x1b[32m✓ Netlify function generated successfully\x1b[0m \x1b[90m${toPosixPath(path.relative(cwd, outFile))}\x1b[0m\n  The function is ready for deployment to Netlify Edge Functions.\n`);
+      const functionFile = path.relative(cwd, outFile);
+      console.log(`\n\x1b[90m${new Date().toLocaleTimeString()}\x1b[0m \x1b[36m[vite]\x1b[0m \x1b[32m✓ Netlify function generated successfully\x1b[0m \x1b[90m${toPosixPath(functionFile)}\x1b[0m`);
+      console.log(`  The function is ready for deployment to Netlify Edge Functions.\n  Make sure your netlify.toml has:\n\n    [functions]\n      directory = "netlify/edge-functions"\n\n`);
     }
+    
+    if (platform === 'cloudflare') {
+      const workerFile = path.relative(cwd, outFile);
+      console.log(`\n\x1b[90m${new Date().toLocaleTimeString()}\x1b[0m \x1b[36m[vite]\x1b[0m \x1b[32m✓ Cloudflare Worker generated successfully\x1b[0m \x1b[90m${toPosixPath(workerFile)}\x1b[0m`);
+      console.log(`  The worker includes SPA fallback for React Router.\n  Make sure your wrangler.toml has the ASSETS binding configured.\n`);
+    }
+    
   } catch (error) {
     viteErrorLog(`Failed to write production entry file: ${error instanceof Error ? error.message : String(error)}`);
     throw error;
