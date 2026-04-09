@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  id-token: write
-  packages: write
+  contents: write       # For GitHub release & tag creation
+  id-token: write       # REQUIRED for OIDC Trusted Publishing
+  packages: write       # Needed to publish to npm
 
 jobs:
   release:
@@ -29,13 +29,11 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org/
 
-      - name: Clean npm (remove any global cruft)
-        run: |
-          npm cache clean --force
-          npm --version
+      - name: Clean npm cache
+        run: npm cache clean --force
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install  # Changed from npm ci to npm install
 
       - name: Build
         run: npm run build
@@ -45,8 +43,9 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Detected version: $VERSION"
 
-      - name: Create Git Tag
+      - name: Create Git Tag (force if needed)
         run: |
           TAG="v${{ steps.pkg.outputs.version }}"
           git config user.name "github-actions[bot]"
