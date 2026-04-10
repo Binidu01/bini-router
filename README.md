@@ -365,38 +365,39 @@ All fields are optional. Only the root `layout.tsx` metadata is used for `index.
 
 ## API Routes
 
-Write your API files in `src/app/api/`. bini-router serves them automatically in dev (`vite dev`) and preview (`vite preview`), and generates a production entry file on `vite build` when `platform` is set.
+Write your API files in `src/app/api/`. The same handler code runs unchanged across all environments — `vite dev`, `vite preview`, and every production platform.
 
 API handlers are loaded on-demand and cached by `mtime` — touching a file in dev busts the cache immediately without a server restart.
+
+### Local testing
+
+Both `vite dev` and `vite preview` serve API routes identically. The dev server mounts a middleware at `/api` that strips the prefix before passing the request to your handler, so there is no difference in behavior between the two. No extra setup is needed — your handlers work the same way locally as they do in production.
+
+```bash
+vite dev      # API routes live at http://localhost:3000/api/*
+vite preview  # same behaviour, served from the dist build
+```
 
 ### Hono app (recommended)
 
 ```ts
-// src/app/api/email.ts
+// src/app/api/hello.ts
 import { Hono } from 'hono'
-import nodemailer from 'nodemailer'
 
 const app = new Hono()
 
-const transporter = nodemailer.createTransport({
-  host: 'smtp-relay.brevo.com',
-  port: 587,
-  auth: {
-    user: requireEnv('SMTP_USER'),  // auto-imported — throws at startup if missing
-    pass: requireEnv('SMTP_PASS'),
-  },
-})
-
-app.post('/email', async (c) => {
-  const { to, subject, html } = await c.req.json()
-  await transporter.sendMail({ from: requireEnv('FROM_EMAIL'), to, subject, html })
-  return c.json({ ok: true })
+app.all('/hello', (c) => {
+  return c.json({
+    message  : 'Hello from Bini.js!',
+    timestamp: new Date().toISOString(),
+    method   : c.req.method,
+  })
 })
 
 export default app
 ```
 
-> Hono apps are detected by checking for `from 'hono'` in the file source. Do **not** call `.basePath('/api')` — bini-router already mounts the app under `/api` in the production entry. Adding it yourself will result in double-prefixed routes (`/api/api/...`).
+This handler is reachable at `/api/hello` in every environment — `vite dev`, `vite preview`, and all five production platforms — without any changes. Write routes **without** the `/api` prefix. bini-router strips it before your handler sees the request in dev/preview, and mounts the app under `/api` in the production entry automatically.
 
 ### Plain function handlers
 
@@ -422,9 +423,9 @@ export default app
 
 ### CORS
 
-CORS is enabled by default for all `/api/*` routes in dev and preview. The following methods are allowed: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `HEAD`. Preflight `OPTIONS` requests are handled automatically with a `204` response and a 24-hour `Access-Control-Max-Age`.
+CORS is enabled by default for all `/api/*` routes in dev, preview, and production. The following methods are allowed: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `HEAD`. Preflight `OPTIONS` requests are handled automatically with a `204` response and a 24-hour `Access-Control-Max-Age`.
 
-Set `cors: false` to disable. In production, CORS headers are added to the generated entry file automatically when `cors: true` (the default).
+Set `cors: false` to disable.
 
 ```ts
 biniroute({ cors: false })
@@ -434,11 +435,15 @@ biniroute({ cors: false })
 
 ## Deployment
 
-Set `platform` once in `vite.config.ts`. bini-router generates the production entry file automatically during `vite build` in the `closeBundle` hook.
+bini-router uses **one codebase across all five platforms** — the same `src/app/api/` handlers run in `vite dev`, `vite preview`, and every production target without any changes. Set `platform` once in `vite.config.ts` and bini-router generates the production entry file automatically during `vite build`.
 
-```ts
-biniroute({ platform: 'netlify' })
-```
+| Platform | Entry file generated | Runtime |
+| --- | --- | --- |
+| `netlify` | `netlify/edge-functions/api.ts` | Deno (Edge) |
+| `vercel` | `api/index.ts` | Edge |
+| `cloudflare` | `worker.ts` | Workers |
+| `node` | *(none — handled by bini-server)* | Node.js |
+| `deno` | `server/index.ts` | Deno |
 
 ---
 
@@ -561,7 +566,7 @@ In Deno Console, set:
 
 ## Base Path
 
-Use `basePath` when your app is deployed under a subpath (e.g. `/app`, `/v2`). bini-router prepends it to every page route, API route, and the `BrowserRouter` basename automatically.
+Use `basePath` when your app is deployed under a subpath (e.g. `/app`, `/v2`). bini-router prepends it to every page route and the `BrowserRouter` basename automatically.
 
 ```ts
 // vite.config.ts
@@ -572,14 +577,13 @@ With `basePath: '/app'`:
 
 - `src/app/page.tsx` → `/app`
 - `src/app/dashboard/page.tsx` → `/app/dashboard`
-- `src/app/api/users.ts` → `/app/api/users`
 - `BrowserRouter basename` is set to `"/app"` at build time
+
+> `basePath` affects page routes and the production API entry (e.g. `/app/api/users`). Dev and preview always serve API routes at `/api/*` regardless of `basePath` — the middleware is mounted directly at `/api`.
 
 > Without `basePath` set, `basename` falls back to `import.meta.env.BASE_URL` and then `"/"`.
 
 ---
-
-## Options
 
 ```ts
 biniroute({

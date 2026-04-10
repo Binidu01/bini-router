@@ -1,6 +1,6 @@
 {
   "name": "bini-router",
-  "version": "1.0.32",
+  "version": "1.0.33",
   "description": "File-based routing, nested layouts, auto-imports, and Hono-powered API routes for Vite + React",
   "author": "bini.js",
   "license": "MIT",

@@ -1250,6 +1250,7 @@ function scanApiRoutes(dir: string, baseRoute = '', basePath: string = '', depth
       rawRoutePath = `${baseRoute}/${base}`;
     }
 
+    // Don't add /api prefix here - middleware handles it
     const routePath = normalizeRoutePath(rawRoutePath, basePath);
     routes.push({ routePath, filePath: fullPath });
   }
@@ -1358,7 +1359,8 @@ async function handleApiRequest(
 
     let cache = getCache();
     if (!cache) {
-      cache = { routes: scanApiRoutes(apiDir, '/api') };
+      // Scan routes WITHOUT /api prefix since middleware already stripped it
+      cache = { routes: scanApiRoutes(apiDir, '') };
       setCache(cache);
     }
 
@@ -2133,10 +2135,14 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin {
           }
         });
 
-        server.middlewares.use((req: any, res: any, next: any) => {
-          if (!req.url?.startsWith('/api')) return next();
+        // Mount API middleware under /api prefix
+        server.middlewares.use('/api', (req: any, res: any, next: any) => {
+          // Remove /api prefix for internal handling
+          const originalUrl = req.url;
+          req.url = req.url?.replace(/^\/api/, '') || '/';
           handleApiRequest(req, res, next, apiDir, enableCors,
             () => honoCache, (v) => { honoCache = v; });
+          req.url = originalUrl;
         });
       }
     },
@@ -2149,11 +2155,16 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin {
       }
 
       const apiDir = getApiDir();
+      
       if (fs.existsSync(apiDir)) {
-        server.middlewares.use((req: any, res: any, next: any) => {
-          if (!req.url?.startsWith('/api')) return next();
+        // Mount API middleware under /api prefix
+        server.middlewares.use('/api', (req: any, res: any, next: any) => {
+          // Remove /api prefix for internal handling
+          const originalUrl = req.url;
+          req.url = req.url?.replace(/^\/api/, '') || '/';
           handleApiRequest(req, res, next, apiDir, enableCors,
             () => honoCache, (v) => { honoCache = v; });
+          req.url = originalUrl;
         });
       }
 
