@@ -1358,7 +1358,8 @@ async function handleApiRequest(
 
     let cache = getCache();
     if (!cache) {
-      cache = { routes: scanApiRoutes(apiDir, '/api') };
+      // FIX: Scan routes WITHOUT /api prefix because dev/preview middleware strips it
+      cache = { routes: scanApiRoutes(apiDir, '') };
       setCache(cache);
     }
 
@@ -1585,12 +1586,7 @@ function buildRouteImports(
     const isHonoApp = src.includes("from 'hono'") || src.includes('from "hono"');
 
     if (isHonoApp) {
-      // Deno and Cloudflare mount at /api, Netlify and Vercel mount at root
-      if (platform === 'deno' || platform === 'cloudflare') {
-        mountings.push(`app.route('/api', ${name});`);
-      } else {
-        mountings.push(`app.route('/', ${name});`);
-      }
+      mountings.push(`app.route('/api', ${name});`);
     } else {
       const mountPath = `/api${route.routePath ?? '/'}`;
       mountings.push(`app.all('${mountPath}', async (c) => { 
@@ -1698,7 +1694,7 @@ function buildProductionEntry(srcApiDir: string, platform: Exclude<Platform, 'no
     lines.push(corsLine);
   }
   
-  // Add API routes
+  // Add API routes FIRST
   lines.push(...mountings);
   lines.push(``);
   
