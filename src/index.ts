@@ -1250,7 +1250,6 @@ function scanApiRoutes(dir: string, baseRoute = '', basePath: string = '', depth
       rawRoutePath = `${baseRoute}/${base}`;
     }
 
-    // Don't add /api prefix here - middleware handles it
     const routePath = normalizeRoutePath(rawRoutePath, basePath);
     routes.push({ routePath, filePath: fullPath });
   }
@@ -1359,8 +1358,7 @@ async function handleApiRequest(
 
     let cache = getCache();
     if (!cache) {
-      // Scan routes WITHOUT /api prefix since middleware already stripped it
-      cache = { routes: scanApiRoutes(apiDir, '') };
+      cache = { routes: scanApiRoutes(apiDir, '/api') };
       setCache(cache);
     }
 
@@ -1587,7 +1585,12 @@ function buildRouteImports(
     const isHonoApp = src.includes("from 'hono'") || src.includes('from "hono"');
 
     if (isHonoApp) {
-      mountings.push(`app.route('/api', ${name});`);
+      // Deno and Cloudflare mount at /api, Netlify and Vercel mount at root
+      if (platform === 'deno' || platform === 'cloudflare') {
+        mountings.push(`app.route('/api', ${name});`);
+      } else {
+        mountings.push(`app.route('/', ${name});`);
+      }
     } else {
       const mountPath = `/api${route.routePath ?? '/'}`;
       mountings.push(`app.all('${mountPath}', async (c) => { 
@@ -1695,7 +1698,7 @@ function buildProductionEntry(srcApiDir: string, platform: Exclude<Platform, 'no
     lines.push(corsLine);
   }
   
-  // Add API routes FIRST
+  // Add API routes
   lines.push(...mountings);
   lines.push(``);
   
@@ -2135,14 +2138,10 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin {
           }
         });
 
-        // Mount API middleware under /api prefix
-        server.middlewares.use('/api', (req: any, res: any, next: any) => {
-          // Remove /api prefix for internal handling
-          const originalUrl = req.url;
-          req.url = req.url?.replace(/^\/api/, '') || '/';
+        server.middlewares.use((req: any, res: any, next: any) => {
+          if (!req.url?.startsWith('/api')) return next();
           handleApiRequest(req, res, next, apiDir, enableCors,
             () => honoCache, (v) => { honoCache = v; });
-          req.url = originalUrl;
         });
       }
     },
@@ -2155,16 +2154,11 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin {
       }
 
       const apiDir = getApiDir();
-      
       if (fs.existsSync(apiDir)) {
-        // Mount API middleware under /api prefix
-        server.middlewares.use('/api', (req: any, res: any, next: any) => {
-          // Remove /api prefix for internal handling
-          const originalUrl = req.url;
-          req.url = req.url?.replace(/^\/api/, '') || '/';
+        server.middlewares.use((req: any, res: any, next: any) => {
+          if (!req.url?.startsWith('/api')) return next();
           handleApiRequest(req, res, next, apiDir, enableCors,
             () => honoCache, (v) => { honoCache = v; });
-          req.url = originalUrl;
         });
       }
 
