@@ -1358,8 +1358,13 @@ async function handleApiRequest(
 
     let cache = getCache();
     if (!cache) {
-      // FIX: Scan routes WITHOUT /api prefix because dev/preview middleware strips it
-      cache = { routes: scanApiRoutes(apiDir, '') };
+      const rawRoutes = scanApiRoutes(apiDir, '');
+      cache = { 
+        routes: rawRoutes.map(route => ({
+          ...route,
+          routePath: route.routePath.replace(/^\/api/, '') || '/'
+        }))
+      };
       setCache(cache);
     }
 
@@ -1586,7 +1591,12 @@ function buildRouteImports(
     const isHonoApp = src.includes("from 'hono'") || src.includes('from "hono"');
 
     if (isHonoApp) {
-      mountings.push(`app.route('/api', ${name});`);
+      // Deno and Cloudflare mount at /api, Netlify and Vercel mount at root
+      if (platform === 'deno' || platform === 'cloudflare') {
+        mountings.push(`app.route('/api', ${name});`);
+      } else {
+        mountings.push(`app.route('/', ${name});`);
+      }
     } else {
       const mountPath = `/api${route.routePath ?? '/'}`;
       mountings.push(`app.all('${mountPath}', async (c) => { 
@@ -1694,7 +1704,7 @@ function buildProductionEntry(srcApiDir: string, platform: Exclude<Platform, 'no
     lines.push(corsLine);
   }
   
-  // Add API routes FIRST
+  // Add API routes
   lines.push(...mountings);
   lines.push(``);
   
@@ -2134,10 +2144,15 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin {
           }
         });
 
+        // Middleware that strips /api prefix before passing to handler
         server.middlewares.use((req: any, res: any, next: any) => {
           if (!req.url?.startsWith('/api')) return next();
+          // Strip /api prefix
+          const originalUrl = req.url;
+          req.url = req.url.replace(/^\/api/, '') || '/';
           handleApiRequest(req, res, next, apiDir, enableCors,
             () => honoCache, (v) => { honoCache = v; });
+          req.url = originalUrl;
         });
       }
     },
@@ -2151,10 +2166,15 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin {
 
       const apiDir = getApiDir();
       if (fs.existsSync(apiDir)) {
+        // Middleware that strips /api prefix before passing to handler
         server.middlewares.use((req: any, res: any, next: any) => {
           if (!req.url?.startsWith('/api')) return next();
+          // Strip /api prefix
+          const originalUrl = req.url;
+          req.url = req.url.replace(/^\/api/, '') || '/';
           handleApiRequest(req, res, next, apiDir, enableCors,
             () => honoCache, (v) => { honoCache = v; });
+          req.url = originalUrl;
         });
       }
 
