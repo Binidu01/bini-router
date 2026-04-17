@@ -1,4 +1,4 @@
-// <reference types="vite/client" />
+/// <reference types="vite/client" />
 
 import fs from 'fs';
 import path from 'path';
@@ -217,6 +217,10 @@ function Default404() {
     return () => observer.disconnect();
   }, []);
   
+  const handleGoBack = () => {
+    window.history.back();
+  };
+  
   const styles = {
     root: {
       margin: 0,
@@ -289,16 +293,16 @@ function Default404() {
             The page you're looking for doesn't exist or has been moved.
           </p>
           <div>
-            <a href="/" style={styles.button}>
-              ← Back to home
-            </a>
+            <button onClick={handleGoBack} style={styles.button}>
+              ← Go Back
+            </button>
           </div>
         </div>
       </div>
       <style>{\`
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { margin: 0; padding: 0; }
-        a { text-decoration: none; }
+        button { text-decoration: none; }
       \`}</style>
     </div>
   );
@@ -975,6 +979,12 @@ function generateApp(appDir: string, basePath: string = '', strictMode = false):
 
   const basenameValue = basePath || (import.meta as any).env?.BASE_URL || '/';
 
+  // Build route map for client-side route type detection
+  const routeMapForClient = validRoutes.map(r => ({
+    path: r.routePath,
+    type: r.dynamic ? 'dynamic' : 'static'
+  }));
+
   return `
      // @ts-nocheck
     // oxlint-disable
@@ -994,6 +1004,20 @@ ${spinnerFn}
 ${titleSetterFn}
 
 ${!hasCustomNotFound ? DEFAULT_404_COMPONENT : ''}
+
+// ─── Route Info for Overlay ──────────────────────────────────────────────────
+if (typeof window !== 'undefined') {
+  window.__bini_routes = ${JSON.stringify(routeMapForClient)};
+  window.__bini_get_route_type = function() {
+    const path = window.location.pathname;
+    const route = window.__bini_routes.find(r => {
+      if (r.type === 'static') return r.path === path;
+      const pattern = r.path.replace(/:[^/]+/g, '[^/]+').replace(/\\*/g, '.*');
+      return new RegExp('^' + pattern + '$').test(path);
+    });
+    return route?.type || 'not_found';
+  };
+}
 
 export default function App() {
   return (
@@ -1363,7 +1387,6 @@ async function handleApiRequest(
     let cache = getCache();
     if (!cache) {
       const rawRoutes = scanApiRoutes(apiDir, '');
-      // For dev/preview, remove /api prefix from route paths to match stripped URL
       cache = { 
         routes: rawRoutes.map(route => ({
           ...route,
@@ -1704,11 +1727,9 @@ function buildProductionEntry(srcApiDir: string, platform: Exclude<Platform, 'no
     lines.push(corsLine);
   }
   
-  // Add API routes FIRST
   lines.push(...mountings);
   lines.push(``);
   
-  // Add static file serving for Deno (AFTER API routes)
   if (platform === 'deno') {
     lines.push(...[
       `// Serve static files from dist (must come AFTER API routes)`,
@@ -2144,7 +2165,6 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin {
           }
         });
 
-        // Strip /api prefix from URL before handling
         server.middlewares.use((req: any, res: any, next: any) => {
           if (!req.url?.startsWith('/api')) return next();
           req.url = req.url.replace(/^\/api/, '') || '/';
@@ -2163,7 +2183,6 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin {
 
       const apiDir = getApiDir();
       if (fs.existsSync(apiDir)) {
-        // Strip /api prefix from URL before handling
         server.middlewares.use((req: any, res: any, next: any) => {
           if (!req.url?.startsWith('/api')) return next();
           req.url = req.url.replace(/^\/api/, '') || '/';
