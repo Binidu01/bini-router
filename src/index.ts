@@ -749,23 +749,45 @@ function generateErrorBoundary(ts: boolean): string {
   return ts ? `
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
-  { error: Error | null }
+  { error: Error | null; errorInfo: React.ErrorInfo | null }
 > {
   constructor(props: { children: React.ReactNode }) {
     super(props);
-    this.state = { error: null };
+    this.state = { error: null, errorInfo: null };
   }
   static getDerivedStateFromError(error: Error) { return { error }; }
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    this.setState({ errorInfo });
     if (import.meta.env.DEV) {
+      // Extract file info from error
+      let file = '';
+      let line = null;
+      const stackMatch = (error.stack || '').match(/([^\\s(]+\\.(?:tsx?|jsx?|js|ts)):(\\d+):(\\d+)/);
+      if (stackMatch) {
+        file = stackMatch[1];
+        line = parseInt(stackMatch[2], 10);
+      }
+      const moduleMatch = (error.message || '').match(/module ['"]([^'"]+)['"]/);
+      if (moduleMatch && !file) {
+        file = moduleMatch[1];
+        line = 1;
+      }
       window.dispatchEvent(new CustomEvent('__bini_error__', {
-        detail: { name: error.name, message: error.message, stack: error.stack, componentStack: errorInfo.componentStack, _type: 'runtime' }
+        detail: { 
+          name: error.name, 
+          message: error.message, 
+          stack: error.stack, 
+          componentStack: errorInfo.componentStack, 
+          _type: 'runtime',
+          file: file,
+          line: line
+        }
       }));
     }
   }
   override render() {
     if (this.state.error) {
-      if (import.meta.env.DEV) return null;
+      if (import.meta.env.DEV) return this.props.children;
       return (
         <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui,sans-serif', padding: '2rem' }}>
           <div style={{ maxWidth: 480, width: '100%', textAlign: 'center' }}>
@@ -784,19 +806,41 @@ class ErrorBoundary extends React.Component<
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { error: null };
+    this.state = { error: null, errorInfo: null };
   }
   static getDerivedStateFromError(error) { return { error }; }
   componentDidCatch(error, errorInfo) {
+    this.setState({ errorInfo });
     if (import.meta.env.DEV) {
+      // Extract file info from error
+      let file = '';
+      let line = null;
+      const stackMatch = (error.stack || '').match(/([^\\s(]+\\.(?:tsx?|jsx?|js|ts)):(\\d+):(\\d+)/);
+      if (stackMatch) {
+        file = stackMatch[1];
+        line = parseInt(stackMatch[2], 10);
+      }
+      const moduleMatch = (error.message || '').match(/module ['"]([^'"]+)['"]/);
+      if (moduleMatch && !file) {
+        file = moduleMatch[1];
+        line = 1;
+      }
       window.dispatchEvent(new CustomEvent('__bini_error__', {
-        detail: { name: error.name, message: error.message, stack: error.stack, componentStack: errorInfo.componentStack, _type: 'runtime' }
+        detail: { 
+          name: error.name, 
+          message: error.message, 
+          stack: error.stack, 
+          componentStack: errorInfo.componentStack, 
+          _type: 'runtime',
+          file: file,
+          line: line
+        }
       }));
     }
   }
   render() {
     if (this.state.error) {
-      if (import.meta.env.DEV) return null;
+      if (import.meta.env.DEV) return this.props.children;
       return (
         <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui,sans-serif', padding: '2rem' }}>
           <div style={{ maxWidth: 480, width: '100%', textAlign: 'center' }}>
@@ -979,7 +1023,6 @@ function generateApp(appDir: string, basePath: string = '', strictMode = false):
 
   const basenameValue = basePath || (import.meta as any).env?.BASE_URL || '/';
 
-  // Build route map for client-side route type detection
   const routeMapForClient = validRoutes.map(r => ({
     path: r.routePath,
     type: r.dynamic ? 'dynamic' : 'static'
