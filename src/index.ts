@@ -366,12 +366,17 @@ function readTsconfigAliases(): Record<string, string> {
     
     const tsconfig = JSON.parse(raw);
     const paths = tsconfig?.compilerOptions?.paths ?? {};
-    const baseUrl = tsconfig?.compilerOptions?.baseUrl ?? '.';
+    
+    // With moduleResolution: "bundler", paths are relative to tsconfig.json directory
+    // No baseUrl needed - use tsconfig.json's directory as the base
+    const tsconfigDir = path.dirname(tsconfigPath);
     
     for (const [alias, targets] of Object.entries(paths) as [string, string[]][]) {
       const cleanAlias = alias.replace(/\/\*$/, '');
       const cleanTarget = (targets[0] ?? '').replace(/\/\*$/, '');
-      aliases[cleanAlias] = path.resolve(process.cwd(), baseUrl, cleanTarget);
+      
+      // Resolve relative to tsconfig.json location
+      aliases[cleanAlias] = path.resolve(tsconfigDir, cleanTarget);
     }
   } catch (error) {
     viteWarnLog('Failed to read tsconfig.json');
@@ -745,20 +750,38 @@ function generateErrorBoundary(ts: boolean): string {
   return ts ? `
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
-  { error: Error | null; errorInfo: React.ErrorInfo | null }
+  { error: Error | null; errorInfo: React.ErrorInfo | null; hasError: boolean }
 > {
+  private lastSuccessfulChildren: React.ReactNode = null;
+  private clearErrorsHandler: (() => void) | null = null;
+  
   constructor(props: { children: React.ReactNode }) {
     super(props);
-    this.state = { error: null, errorInfo: null };
+    this.state = { error: null, errorInfo: null, hasError: false };
+    this.lastSuccessfulChildren = props.children;
   }
   
   static getDerivedStateFromError(error: Error) { 
-    return { error }; 
+    return { hasError: true, error };
+  }
+  
+  componentDidMount() {
+    if (import.meta.env.DEV) {
+      this.clearErrorsHandler = () => {
+        this.setState({ hasError: false, error: null, errorInfo: null });
+      };
+      window.addEventListener('__bini_clear_errors__', this.clearErrorsHandler);
+    }
+  }
+  
+  componentWillUnmount() {
+    if (import.meta.env.DEV && this.clearErrorsHandler) {
+      window.removeEventListener('__bini_clear_errors__', this.clearErrorsHandler);
+    }
   }
   
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     if (import.meta.env.DEV) {
-      // Extract file info from error
       let file = '';
       let line = null;
       const stackMatch = (error.stack || '').match(/([^\\s(]+\\.(?:tsx?|jsx?|js|ts)):(\\d+):(\\d+)/);
@@ -772,7 +795,6 @@ class ErrorBoundary extends React.Component<
         line = 1;
       }
       
-      // Dispatch to overlay
       window.dispatchEvent(new CustomEvent('__bini_error__', {
         detail: { 
           name: error.name, 
@@ -785,51 +807,67 @@ class ErrorBoundary extends React.Component<
         }
       }));
       
-      // CRITICAL: Do NOT set error state in dev - this would unmount the component tree
-      return;
+      this.setState({ error, errorInfo, hasError: true });
+    } else {
+      this.setState({ error, errorInfo, hasError: true });
     }
-    
-    // Only set error state in production
-    this.setState({ error, errorInfo });
   }
   
   override render() {
-    // In development, ALWAYS render children - never show error UI
-    // This keeps the component tree mounted for HMR
-    if (import.meta.env.DEV) {
-      return this.props.children;
+    if (!this.state.hasError && this.props.children) {
+      this.lastSuccessfulChildren = this.props.children;
     }
     
-    // In production, show error UI if there's an error
-    if (this.state.error) {
+    if (import.meta.env.DEV && this.state.hasError) {
+      return this.lastSuccessfulChildren || this.props.children;
+    }
+    
+    if (this.state.hasError && this.state.error) {
       return (
         <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui,sans-serif', padding: '2rem' }}>
           <div style={{ maxWidth: 480, width: '100%', textAlign: 'center' }}>
             <h2 style={{ color: '#e74c3c', marginBottom: '1rem' }}>Something went wrong</h2>
             <pre style={{ background: '#fef2f2', padding: '1rem', borderRadius: '0.5rem', textAlign: 'left', fontSize: '0.8rem', color: '#e74c3c', overflow: 'auto' }}>{this.state.error.toString()}</pre>
-            <button onClick={() => this.setState({ error: null })} style={{ marginTop: '1rem', padding: '0.5rem 1.5rem', background: '#00CFFF', color: 'white', border: 'none', borderRadius: '0.5rem', cursor: 'pointer', fontWeight: 600 }}>
+            <button onClick={() => this.setState({ hasError: false, error: null })} style={{ marginTop: '1rem', padding: '0.5rem 1.5rem', background: '#00CFFF', color: 'white', border: 'none', borderRadius: '0.5rem', cursor: 'pointer', fontWeight: 600 }}>
               Try again
             </button>
           </div>
         </div>
       );
     }
+    
     return this.props.children;
   }
 }` : `
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { error: null, errorInfo: null };
+    this.state = { error: null, errorInfo: null, hasError: false };
+    this.lastSuccessfulChildren = props.children;
+    this.clearErrorsHandler = null;
   }
   
   static getDerivedStateFromError(error) { 
-    return { error }; 
+    return { hasError: true, error };
+  }
+  
+  componentDidMount() {
+    if (import.meta.env.DEV) {
+      this.clearErrorsHandler = () => {
+        this.setState({ hasError: false, error: null, errorInfo: null });
+      };
+      window.addEventListener('__bini_clear_errors__', this.clearErrorsHandler);
+    }
+  }
+  
+  componentWillUnmount() {
+    if (import.meta.env.DEV && this.clearErrorsHandler) {
+      window.removeEventListener('__bini_clear_errors__', this.clearErrorsHandler);
+    }
   }
   
   componentDidCatch(error, errorInfo) {
     if (import.meta.env.DEV) {
-      // Extract file info from error
       let file = '';
       let line = null;
       const stackMatch = (error.stack || '').match(/([^\\s(]+\\.(?:tsx?|jsx?|js|ts)):(\\d+):(\\d+)/);
@@ -843,7 +881,6 @@ class ErrorBoundary extends React.Component {
         line = 1;
       }
       
-      // Dispatch to overlay
       window.dispatchEvent(new CustomEvent('__bini_error__', {
         detail: { 
           name: error.name, 
@@ -856,35 +893,36 @@ class ErrorBoundary extends React.Component {
         }
       }));
       
-      // CRITICAL: Do NOT set error state in dev - this would unmount the component tree
-      return;
+      this.setState({ error, errorInfo, hasError: true });
+    } else {
+      this.setState({ error, errorInfo, hasError: true });
     }
-    
-    // Only set error state in production
-    this.setState({ error, errorInfo });
   }
   
   render() {
-    // In development, ALWAYS render children - never show error UI
-    // This keeps the component tree mounted for HMR
-    if (import.meta.env.DEV) {
-      return this.props.children;
+    if (!this.state.hasError && this.props.children) {
+      this.lastSuccessfulChildren = this.props.children;
     }
     
-    // In production, show error UI if there's an error
-    if (this.state.error) {
-      return (
-        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui,sans-serif', padding: '2rem' }}>
-          <div style={{ maxWidth: 480, width: '100%', textAlign: 'center' }}>
-            <h2 style={{ color: '#e74c3c', marginBottom: '1rem' }}>Something went wrong</h2>
-            <pre style={{ background: '#fef2f2', padding: '1rem', borderRadius: '0.5rem', textAlign: 'left', fontSize: '0.8rem', color: '#e74c3c', overflow: 'auto' }}>{this.state.error.toString()}</pre>
-            <button onClick={() => this.setState({ error: null })} style={{ marginTop: '1rem', padding: '0.5rem 1.5rem', background: '#00CFFF', color: 'white', border: 'none', borderRadius: '0.5rem', cursor: 'pointer', fontWeight: 600 }}>
-              Try again
-            </button>
-          </div>
-        </div>
-      );
+    if (import.meta.env.DEV && this.state.hasError) {
+      return this.lastSuccessfulChildren || this.props.children;
     }
+    
+    if (this.state.hasError && this.state.error) {
+      return React.createElement('div', { 
+        style: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui,sans-serif', padding: '2rem' }
+      }, React.createElement('div', { style: { maxWidth: 480, width: '100%', textAlign: 'center' } },
+        React.createElement('h2', { style: { color: '#e74c3c', marginBottom: '1rem' } }, 'Something went wrong'),
+        React.createElement('pre', { 
+          style: { background: '#fef2f2', padding: '1rem', borderRadius: '0.5rem', textAlign: 'left', fontSize: '0.8rem', color: '#e74c3c', overflow: 'auto' }
+        }, this.state.error.toString()),
+        React.createElement('button', { 
+          onClick: () => this.setState({ hasError: false, error: null }),
+          style: { marginTop: '1rem', padding: '0.5rem 1.5rem', background: '#00CFFF', color: 'white', border: 'none', borderRadius: '0.5rem', cursor: 'pointer', fontWeight: 600 }
+        }, 'Try again')
+      ));
+    }
+    
     return this.props.children;
   }
 }`;
