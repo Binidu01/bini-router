@@ -186,12 +186,8 @@ function Spinner() {
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { margin: 0; padding: 0; }
         @keyframes spin {
-          from {
-            transform: rotate(0deg);
-          }
-          to {
-            transform: rotate(360deg);
-          }
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
         }
       \`}</style>
     </div>
@@ -755,9 +751,12 @@ class ErrorBoundary extends React.Component<
     super(props);
     this.state = { error: null, errorInfo: null };
   }
-  static getDerivedStateFromError(error: Error) { return { error }; }
+  
+  static getDerivedStateFromError(error: Error) { 
+    return { error }; 
+  }
+  
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    this.setState({ errorInfo });
     if (import.meta.env.DEV) {
       // Extract file info from error
       let file = '';
@@ -772,6 +771,8 @@ class ErrorBoundary extends React.Component<
         file = moduleMatch[1];
         line = 1;
       }
+      
+      // Dispatch to overlay
       window.dispatchEvent(new CustomEvent('__bini_error__', {
         detail: { 
           name: error.name, 
@@ -783,11 +784,24 @@ class ErrorBoundary extends React.Component<
           line: line
         }
       }));
+      
+      // CRITICAL: Do NOT set error state in dev - this would unmount the component tree
+      return;
     }
+    
+    // Only set error state in production
+    this.setState({ error, errorInfo });
   }
+  
   override render() {
+    // In development, ALWAYS render children - never show error UI
+    // This keeps the component tree mounted for HMR
+    if (import.meta.env.DEV) {
+      return this.props.children;
+    }
+    
+    // In production, show error UI if there's an error
     if (this.state.error) {
-      if (import.meta.env.DEV) return this.props.children;
       return (
         <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui,sans-serif', padding: '2rem' }}>
           <div style={{ maxWidth: 480, width: '100%', textAlign: 'center' }}>
@@ -808,9 +822,12 @@ class ErrorBoundary extends React.Component {
     super(props);
     this.state = { error: null, errorInfo: null };
   }
-  static getDerivedStateFromError(error) { return { error }; }
+  
+  static getDerivedStateFromError(error) { 
+    return { error }; 
+  }
+  
   componentDidCatch(error, errorInfo) {
-    this.setState({ errorInfo });
     if (import.meta.env.DEV) {
       // Extract file info from error
       let file = '';
@@ -825,6 +842,8 @@ class ErrorBoundary extends React.Component {
         file = moduleMatch[1];
         line = 1;
       }
+      
+      // Dispatch to overlay
       window.dispatchEvent(new CustomEvent('__bini_error__', {
         detail: { 
           name: error.name, 
@@ -836,11 +855,24 @@ class ErrorBoundary extends React.Component {
           line: line
         }
       }));
+      
+      // CRITICAL: Do NOT set error state in dev - this would unmount the component tree
+      return;
     }
+    
+    // Only set error state in production
+    this.setState({ error, errorInfo });
   }
+  
   render() {
+    // In development, ALWAYS render children - never show error UI
+    // This keeps the component tree mounted for HMR
+    if (import.meta.env.DEV) {
+      return this.props.children;
+    }
+    
+    // In production, show error UI if there's an error
     if (this.state.error) {
-      if (import.meta.env.DEV) return this.props.children;
       return (
         <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui,sans-serif', padding: '2rem' }}>
           <div style={{ maxWidth: 480, width: '100%', textAlign: 'center' }}>
