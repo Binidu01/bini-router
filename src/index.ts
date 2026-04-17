@@ -367,15 +367,11 @@ function readTsconfigAliases(): Record<string, string> {
     const tsconfig = JSON.parse(raw);
     const paths = tsconfig?.compilerOptions?.paths ?? {};
     
-    // With moduleResolution: "bundler", paths are relative to tsconfig.json directory
-    // No baseUrl needed - use tsconfig.json's directory as the base
     const tsconfigDir = path.dirname(tsconfigPath);
     
     for (const [alias, targets] of Object.entries(paths) as [string, string[]][]) {
       const cleanAlias = alias.replace(/\/\*$/, '');
       const cleanTarget = (targets[0] ?? '').replace(/\/\*$/, '');
-      
-      // Resolve relative to tsconfig.json location
       aliases[cleanAlias] = path.resolve(tsconfigDir, cleanTarget);
     }
   } catch (error) {
@@ -746,19 +742,19 @@ function renderComponentWithLayouts(
   return `${pad}<>${titleSetter}<${name}>${inner}</${name}></>`;
 }
 
+// ─── FIXED: ErrorBoundary — no stale children cache, full reload on fix ──────
+
 function generateErrorBoundary(ts: boolean): string {
   return ts ? `
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { error: Error | null; errorInfo: React.ErrorInfo | null; hasError: boolean }
 > {
-  private lastSuccessfulChildren: React.ReactNode = null;
   private clearErrorsHandler: (() => void) | null = null;
   
   constructor(props: { children: React.ReactNode }) {
     super(props);
     this.state = { error: null, errorInfo: null, hasError: false };
-    this.lastSuccessfulChildren = props.children;
   }
   
   static getDerivedStateFromError(error: Error) { 
@@ -767,8 +763,11 @@ class ErrorBoundary extends React.Component<
   
   componentDidMount() {
     if (import.meta.env.DEV) {
+      // Force a full page reload when the dev overlay signals the error is fixed.
+      // Using setState here would reuse the old stale module closure and leave
+      // ghost / white UI behind. A reload lets Vite re-fetch the fixed module cleanly.
       this.clearErrorsHandler = () => {
-        this.setState({ hasError: false, error: null, errorInfo: null });
+        window.location.reload();
       };
       window.addEventListener('__bini_clear_errors__', this.clearErrorsHandler);
     }
@@ -814,14 +813,13 @@ class ErrorBoundary extends React.Component<
   }
   
   override render() {
-    if (!this.state.hasError && this.props.children) {
-      this.lastSuccessfulChildren = this.props.children;
-    }
-    
+    // In DEV: render null while errored so no stale ghost UI shows beneath the overlay.
+    // The overlay plugin handles displaying the error; we stay out of the way.
     if (import.meta.env.DEV && this.state.hasError) {
-      return this.lastSuccessfulChildren || this.props.children;
+      return null;
     }
     
+    // In production: show a friendly fallback UI.
     if (this.state.hasError && this.state.error) {
       return (
         <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui,sans-serif', padding: '2rem' }}>
@@ -843,7 +841,6 @@ class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
     this.state = { error: null, errorInfo: null, hasError: false };
-    this.lastSuccessfulChildren = props.children;
     this.clearErrorsHandler = null;
   }
   
@@ -853,8 +850,11 @@ class ErrorBoundary extends React.Component {
   
   componentDidMount() {
     if (import.meta.env.DEV) {
+      // Force a full page reload when the dev overlay signals the error is fixed.
+      // Using setState here would reuse the old stale module closure and leave
+      // ghost / white UI behind. A reload lets Vite re-fetch the fixed module cleanly.
       this.clearErrorsHandler = () => {
-        this.setState({ hasError: false, error: null, errorInfo: null });
+        window.location.reload();
       };
       window.addEventListener('__bini_clear_errors__', this.clearErrorsHandler);
     }
@@ -900,14 +900,13 @@ class ErrorBoundary extends React.Component {
   }
   
   render() {
-    if (!this.state.hasError && this.props.children) {
-      this.lastSuccessfulChildren = this.props.children;
-    }
-    
+    // In DEV: render null while errored so no stale ghost UI shows beneath the overlay.
+    // The overlay plugin handles displaying the error; we stay out of the way.
     if (import.meta.env.DEV && this.state.hasError) {
-      return this.lastSuccessfulChildren || this.props.children;
+      return null;
     }
     
+    // In production: show a friendly fallback UI.
     if (this.state.hasError && this.state.error) {
       return React.createElement('div', { 
         style: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui,sans-serif', padding: '2rem' }
