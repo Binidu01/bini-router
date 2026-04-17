@@ -16,7 +16,7 @@ jobs:
   release:
     name: Tag, Release & Publish
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'alpha' && 'Alpha' || 'Production' }}
+    environment: Production
 
     steps:
       - name: Checkout repository
