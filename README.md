@@ -19,20 +19,20 @@ Like Next.js — but pure SPA, zero server required.
 
 ## Features
 
-- 🗂️ **File-based routing** — `page.tsx` / `page.jsx` files map directly to URLs
-- 🪆 **Nested layouts** — layouts wrap their segment and all children automatically
-- 🏷️ **Per-route metadata** — `export const metadata` in any layout sets `document.title` at runtime; root layout metadata is injected into `index.html` at build time
-- 🔀 **Dynamic segments** — `[id]/page.tsx` → `/:id`, `[...slug]` → catch-all
-- 🌐 **API routes** — Hono-powered, pure `Request → Response` handlers in `src/app/api/`
-- ✨ **Auto-imports** — `useState`, `useEffect`, `Link`, `useNavigate`, `getEnv` and more available in every page without importing
+- 🗂️ **File-based routing** — `page.tsx` / `page.jsx` / `page.ts` / `page.js` files map directly to URLs; flat files (e.g. `about.tsx`) are also supported alongside `page.*` files
+- 🪆 **Nested layouts** — layouts wrap their segment and all children automatically; the full chain is resolved by walking up from the page directory to `appDir`
+- 🏷️ **Per-route metadata** — `export const metadata` in any `layout.tsx` sets `document.title` at runtime via a `TitleSetter` component; root layout metadata is injected into `index.html` at build time via `transformIndexHtml`
+- 🔀 **Dynamic segments** — `[id]/page.tsx` → `/:id`, `[...slug]` → catch-all (`*`); static routes are matched before dynamic, dynamic before catch-alls
+- 🌐 **API routes** — Hono-powered, pure `Request → Response` handlers in `src/app/api/`; plain function handlers also supported via `x-bini-params` header for route params
+- ✨ **Auto-imports** — `useState`, `useEffect`, `Link`, `useNavigate`, `getEnv` and more injected into every page and layout under `src/app/` (excluding `src/app/api/` and the generated `App.tsx`)
 - 🌿 **Auto env loading** — `.env` loaded automatically for API routes via [bini-env](https://www.npmjs.com/package/bini-env)
-- 🎨 **Custom loading screen** — create `src/app/loading.tsx` to replace the built-in spinner
-- 🛡️ **Built-in error boundaries** — per-layout crash isolation with a dev-friendly overlay
-- ⏳ **Lazy loading** — every route is code-split automatically via `React.lazy`
-- 🔄 **HMR** — file watcher with smart debounce (60ms), event deduplication, and live new-folder detection
-- 🔒 **Security** — route segment validation, param name validation, path traversal guards, 10MB file size limits
+- 🎨 **Custom loading screen** — create `src/app/loading.tsx` with a default export to replace the built-in dark-mode-aware spinner
+- 🛡️ **Built-in error boundaries** — per-layout crash isolation; dispatches `__bini_error__` CustomEvent in dev for overlay support; renders a "Try again" fallback in production
+- ⏳ **Lazy loading** — every route and layout is code-split automatically via `React.lazy` + `Suspense`
+- 🔄 **HMR** — file watcher with 60ms debounce for changes, 300ms for new files/folders, 500ms event deduplication window (TTL: 2s), and live new-folder detection
+- 🔒 **Security** — route segment validation (`/^[a-zA-Z0-9_-]+$/`), param name validation (`/^[a-zA-Z_][a-zA-Z0-9_]*$/`), path traversal guards (`..` / `//` blocked), 10MB file size limits, 100-level directory depth cap
 - 📦 **Zero config** — works out of the box
-- 💛 **JavaScript & TypeScript** — full support for both, auto-detected from your project
+- 💛 **JavaScript & TypeScript** — full support for both, auto-detected from `src/main.tsx`, `tsconfig.json`, or a recursive scan of `src/app/`
 - 🚀 **Deploy anywhere** — Netlify Edge Functions, Vercel Edge, Cloudflare Workers, Node.js, Deno
 
 ---
@@ -77,14 +77,14 @@ export default defineConfig({
 </html>
 ```
 
-> You do **not** need to manually add `<title>`, `<meta>`, favicons, or Open Graph tags.  
-> bini-router reads your `metadata` export and injects everything at build time.
+> You do **not** need to manually add `<title>`, `<meta>`, favicons, or Open Graph tags.
+> bini-router reads your `metadata` export from the root layout and injects everything at build time. All metadata values are HTML-escaped before injection.
 
 ---
 
 ## Auto-imports
 
-bini-router automatically injects imports into every page and layout file under `src/app/` (excluding `src/app/api/`). You never need to write import statements for these:
+bini-router automatically injects imports into every page and layout file under `src/app/` (excluding `src/app/api/` and the auto-generated `App.tsx` / `App.jsx`). Injection is skipped for any package you already import manually — no duplicates ever.
 
 **From `react`:**
 ```ts
@@ -120,10 +120,6 @@ export default function Profile() {
 }
 ```
 
-> If you already import from one of these packages manually, bini-router detects it and skips injection — no duplicates ever.
-
-> Auto-imports are only injected into files inside `src/app/` that are not in `src/app/api/`, and not the auto-generated `App.tsx` / `App.jsx` file itself.
-
 ---
 
 ## Environment Variables
@@ -132,7 +128,7 @@ bini-router uses [bini-env](https://www.npmjs.com/package/bini-env) to handle en
 
 - **Client code** — use `import.meta.env.BINI_*` (prefix set automatically by bini-env)
 - **API routes** — use `getEnv()` or `requireEnv()` — no dotenv import needed
-- **Dev server** — `.env` is loaded automatically when the server starts
+- **Dev server** — `.env` is loaded automatically when the server starts via `loadEnv(process.cwd())`
 - **Production** — env vars are read from the host's environment (Netlify dashboard, Vercel settings, etc.)
 
 ```env
@@ -200,9 +196,10 @@ src/
       [...catch].ts     ← /api/* catch-all
 ```
 
-> Files and directories prefixed with `_` or `.` are ignored by the router.  
-> The `api/` directory is excluded from page route scanning.  
+> Files and directories prefixed with `_` or `.` are ignored by the router.
+> The `api/` directory is excluded from page route scanning.
 > Directory traversal is capped at 100 levels deep.
+> Layouts containing an `<html>` tag or without a default export are excluded from the layout chain automatically.
 
 ---
 
@@ -216,7 +213,7 @@ export default function Dashboard() {
 }
 ```
 
-Pages are scanned from flat files in a directory (e.g. `about.tsx` → `/about`) **and** from `page.*` files inside named subdirectories. Both forms are supported simultaneously.
+Pages are scanned from flat files in a directory (e.g. `about.tsx` → `/about`) **and** from `page.*` files inside named subdirectories. Both forms are supported simultaneously. Only files with a default export are registered as routes.
 
 ### Dynamic routes
 
@@ -238,15 +235,15 @@ export default function Docs() {
 }
 ```
 
-> Route priority: static routes are matched before dynamic ones; dynamic routes before catch-alls. Routes are sorted by this priority and then by path length (shortest first).
+> **Route priority:** static routes → dynamic routes → catch-alls. Within each tier, routes are sorted by path length (shortest first).
 
 ---
 
 ## Layouts
 
-Layouts wrap all pages in their directory and subdirectories. bini-router walks up the directory tree from each page to collect the full layout chain, stopping at the `appDir` root.
+Layouts wrap all pages in their directory and subdirectories. bini-router walks up the directory tree from each page to collect the full layout chain, stopping at the `appDir` root. Circular layout dependencies are detected and throw a `CircularLayoutError`.
 
-All layouts — including the root layout — are rendered as React Router `<Route element>` wrappers using `<Outlet />`. The root layout receives child routes via `<Outlet />` exactly like nested layouts do.
+All layouts — including the root layout — are rendered as React Router `<Route element>` wrappers using `<Outlet />`.
 
 ```tsx
 // src/app/layout.tsx — root layout
@@ -276,15 +273,11 @@ export default function DashboardLayout() {
 }
 ```
 
-> Layouts that contain an `<html>` tag are automatically excluded from the chain (treated as HTML shell files, not route layouts).  
-> Layouts without a default export are also excluded from the chain.  
-> Circular layout dependencies are detected and throw a `CircularLayoutError`.
-
 ---
 
 ## Custom Loading Screen
 
-Create `src/app/loading.tsx` with a default export to replace the built-in spinner. bini-router automatically detects and uses it as the Suspense fallback for **every** lazy-loaded route and layout.
+Create `src/app/loading.tsx` with a default export to replace the built-in spinner. bini-router automatically uses it as the `Suspense` fallback for **every** lazy-loaded route and layout.
 
 ```tsx
 // src/app/loading.tsx
@@ -297,7 +290,7 @@ export default function Loading() {
 }
 ```
 
-If the file exists but has no default export, the built-in spinner is used automatically. The built-in spinner is dark-mode aware — it reads `document.documentElement.classList` for a `dark` class and falls back to `prefers-color-scheme`, with a `MutationObserver` for live theme switching.
+If the file exists but has no default export, the built-in spinner is used. The built-in spinner is dark-mode aware — it reads `document.documentElement.classList` for a `dark` class and falls back to `prefers-color-scheme`, with a `MutationObserver` for live theme switching.
 
 ---
 
@@ -315,13 +308,13 @@ export default function NotFound() {
 }
 ```
 
-A built-in 404 page is rendered automatically if `not-found.tsx` is absent or has no default export. If a custom `not-found.tsx` exists, it is wrapped with the root layout chain (same layouts that wrap `/`) before being rendered at `path="*"`.
+A built-in 404 page is rendered automatically if `not-found.tsx` is absent or has no default export. If a custom `not-found.tsx` exists, it is wrapped with the root layout chain (the same layouts that wrap `/`) before being rendered at `path="*"`.
 
 ---
 
 ## Metadata
 
-Export `metadata` from any `layout.tsx`. Root layout metadata is injected into `index.html` at build time via `transformIndexHtml`. Nested layout titles update `document.title` at runtime via a `TitleSetter` component rendered inside the layout's Suspense boundary.
+Export `metadata` from any `layout.tsx`. Root layout metadata is injected into `index.html` at build time via `transformIndexHtml`. Nested layout titles update `document.title` at runtime via a `TitleSetter` component rendered inside the layout's `Suspense` boundary.
 
 > `export const metadata` is automatically stripped from the browser bundle by the `transform` hook — it never ships to the client.
 
@@ -371,7 +364,7 @@ API handlers are loaded on-demand and cached by `mtime` — touching a file in d
 
 ### Local testing
 
-Both `vite dev` and `vite preview` serve API routes identically. The dev server mounts a middleware at `/api` that strips the prefix before passing the request to your handler, so there is no difference in behavior between the two. No extra setup is needed — your handlers work the same way locally as they do in production.
+Both `vite dev` and `vite preview` serve API routes identically. The dev server mounts a middleware at `/api` that strips the prefix before passing the request to your handler.
 
 ```bash
 vite dev      # API routes live at http://localhost:3000/api/*
@@ -397,7 +390,9 @@ app.all('/hello', (c) => {
 export default app
 ```
 
-This handler is reachable at `/api/hello` in every environment — `vite dev`, `vite preview`, and all five production platforms — without any changes. Write routes **without** the `/api` prefix. bini-router strips it before your handler sees the request in dev/preview, and mounts the app under `/api` in the production entry automatically.
+Write routes **without** the `/api` prefix. bini-router strips it before your handler sees the request in dev/preview, and mounts the app under `/api` in the production entry automatically.
+
+> Hono apps are detected by checking for `from 'hono'` in the file source. Matched handlers are mounted via `app.route('/api', handler)`.
 
 ### Plain function handlers
 
@@ -423,9 +418,7 @@ export default app
 
 ### CORS
 
-CORS is enabled by default for all `/api/*` routes in dev, preview, and production. The following methods are allowed: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `HEAD`. Preflight `OPTIONS` requests are handled automatically with a `204` response and a 24-hour `Access-Control-Max-Age`.
-
-Set `cors: false` to disable.
+CORS is enabled by default for all `/api/*` routes in dev, preview, and production. The following methods are allowed: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `HEAD`. Preflight `OPTIONS` requests are handled automatically with a `204` response and a 24-hour `Access-Control-Max-Age`. Set `cors: false` to disable.
 
 ```ts
 biniroute({ cors: false })
@@ -435,7 +428,7 @@ biniroute({ cors: false })
 
 ## Deployment
 
-bini-router uses **one codebase across all five platforms** — the same `src/app/api/` handlers run in `vite dev`, `vite preview`, and every production target without any changes. Set `platform` once in `vite.config.ts` and bini-router generates the production entry file automatically during `vite build`.
+bini-router uses **one codebase across all five platforms** — set `platform` once in `vite.config.ts` and bini-router generates the production entry file automatically during `vite build`.
 
 | Platform | Entry file generated | Runtime |
 | --- | --- | --- |
@@ -453,7 +446,7 @@ bini-router uses **one codebase across all five platforms** — the same `src/ap
 biniroute({ platform: 'netlify' })
 ```
 
-Generates `netlify/edge-functions/api.ts` using Deno CDN URL imports (`hono@v4.3.11`) — no npm deps needed in the edge function.
+Generates `netlify/edge-functions/api.ts` using Deno CDN URL imports (`hono@v4.3.11`) — no npm deps needed in the edge function. CORS middleware is injected inline (without `hono/cors`) for Netlify compatibility.
 
 > ⚠️ **Netlify Edge Functions run on the Deno runtime, not Node.js.** Node-specific packages like `nodemailer`, `fs`, `path`, or anything that depends on Node built-ins will not work. Use Deno-compatible or Web API alternatives instead (e.g. `fetch` for HTTP, Deno CDN imports for utilities).
 
@@ -482,7 +475,7 @@ Add `netlify.toml`:
 biniroute({ platform: 'vercel' })
 ```
 
-Generates `api/index.ts` (or `api/index.js`) as a Vercel Edge Function with `export const config = { runtime: 'edge' }`.
+Generates `api/index.ts` (or `api/index.js`) as a Vercel Edge Function with `export const config = { runtime: 'edge' }` and `export default app.fetch`.
 
 Add `vercel.json`:
 
@@ -511,7 +504,7 @@ Add `vercel.json`:
 biniroute({ platform: 'cloudflare' })
 ```
 
-Generates `worker.ts` (or `worker.js`) with a built-in SPA fallback — the `ASSETS` binding serves static files first, and all unmatched paths fall through to `index.html` for React Router. Requires a `wrangler.toml` with the `ASSETS` binding.
+Generates `worker.ts` (or `worker.js`) with a built-in SPA fallback — the `ASSETS` binding serves static files first (status 200), and all unmatched paths fall through to `/index.html` for React Router. Requires a `wrangler.toml` with the `ASSETS` binding.
 
 Add `wrangler.toml`:
 
@@ -524,8 +517,6 @@ compatibility_date = "2025-04-09"
 directory = "./dist"
 binding = "ASSETS"
 ```
-
-Run `vite build` — the worker file is generated automatically and picked up by the Cloudflare dashboard on deploy.
 
 ---
 
@@ -545,9 +536,9 @@ vite build && npm start
 biniroute({ platform: 'deno' })
 ```
 
-Generates `server/index.ts` (or `server/index.js`) using Deno CDN imports (`hono@v4.3.11`) and `Deno.serve`. Port defaults to `3000` or reads from the `PORT` environment variable.
+Generates `server/index.ts` (or `server/index.js`) using Deno CDN imports (`hono@v4.3.11`) and `Deno.serve`. Port defaults to `3000` or reads from the `PORT` environment variable. Static files are served from `./dist` with MIME type detection; unmatched paths fall back to `./dist/index.html` for SPA routing.
 
-> ⚠️ **Deno Deploy does not run Node.js.** Node-specific packages like `nodemailer`, `fs`, `path`, or anything that depends on Node built-ins will not work. Use Deno-compatible or Web API alternatives instead (e.g. `fetch` for HTTP, Deno CDN imports for utilities).
+> ⚠️ **Deno Deploy does not run Node.js.** Use Deno-compatible or Web API alternatives.
 
 > ⚠️ **Deno Deploy reads `server/` before the build step runs.** You must commit the generated file:
 >
@@ -579,17 +570,19 @@ With `basePath: '/app'`:
 - `src/app/dashboard/page.tsx` → `/app/dashboard`
 - `BrowserRouter basename` is set to `"/app"` at build time
 
-> `basePath` affects page routes and the production API entry (e.g. `/app/api/users`). Dev and preview always serve API routes at `/api/*` regardless of `basePath` — the middleware is mounted directly at `/api`.
+> `basePath` affects page routes and the production API entry. Dev and preview always serve API routes at `/api/*` regardless of `basePath`.
 
 > Without `basePath` set, `basename` falls back to `import.meta.env.BASE_URL` and then `"/"`.
 
 ---
 
+## Plugin Options
+
 ```ts
 biniroute({
   appDir    : 'src/app',      // Default: src/app
   apiDir    : 'src/app/api',  // Default: src/app/api
-  cors      : true,           // Enable CORS on dev/preview API. Default: true
+  cors      : true,           // Enable CORS on dev/preview/production API. Default: true
   platform  : 'netlify',      // 'netlify' | 'vercel' | 'cloudflare' | 'deno' | 'node'
                               //   generates production entry on build (except 'node')
   strictMode: true,           // Throw on route conflicts. Default: true
@@ -602,7 +595,7 @@ biniroute({
 
 ## Error Boundaries
 
-Every layout is wrapped in a built-in `ErrorBoundary`. In development, runtime errors are dispatched as a `__bini_error__` CustomEvent on `window` (consumed by bini-overlay) so dev overlays can display them — the boundary itself renders `null` in dev so the overlay takes over the screen. In production, a fallback UI is rendered with a "Try again" button that resets the boundary state.
+Every layout is wrapped in a built-in `ErrorBoundary`. In development, runtime errors are dispatched as a `__bini_error__` CustomEvent on `window` (consumed by bini-overlay) and the boundary renders `null` so the overlay takes over the screen. The boundary listens for `__bini_clear_errors__` events and triggers a full page reload when the dev overlay signals the error is fixed — this ensures Vite re-fetches the corrected module cleanly rather than reusing a stale closure. In production, a fallback UI is shown with a "Try again" button that resets the boundary state.
 
 ---
 
@@ -610,14 +603,16 @@ Every layout is wrapped in a built-in `ErrorBoundary`. In development, runtime e
 
 bini-router watches `src/app/` during development and regenerates `App.tsx` automatically.
 
-- **New file** → regenerates after 300ms debounce
-- **New folder** → watched instantly; regenerates after 300ms if a `page.*` file appears within 300ms
-- **Changed file** → regenerates after 60ms debounce
-- **Deleted file or folder** → removed from routes and triggers reload
-- **Root layout change** → full module graph invalidation + full reload
-- **API file change** → clears module cache entry and route cache, triggers full reload
-- Events are deduplicated within a 500ms window per `file:event` key (TTL: 2s) to prevent redundant reloads
-- Code generation is guarded by an `isGenerating` flag — concurrent regenerations are dropped, not queued
+| Event | Behaviour |
+|-------|-----------|
+| File changed | Regenerate after 60ms debounce |
+| New file added | Regenerate after 300ms debounce |
+| New folder added | Watched instantly; regenerate after 300ms if a `page.*` appears within 300ms |
+| File or folder deleted | Removed from routes, triggers full reload |
+| Root layout changed | Full module graph invalidation + full reload |
+| API file changed | Clears module cache + route cache, triggers full reload |
+
+Events are deduplicated within a 500ms window per `file:event` key (TTL: 2s). Code generation is guarded by an `isGenerating` flag — concurrent regenerations are dropped, not queued.
 
 > You never need to restart the dev server when adding or removing routes.
 
@@ -629,9 +624,8 @@ bini-router validates all route segment names and dynamic parameter names at sca
 
 - Segment names must match `/^[a-zA-Z0-9_-]+$/` and be under 100 characters
 - Parameter names (inside `[brackets]`) must match `/^[a-zA-Z_][a-zA-Z0-9_]*$/`
-- Paths containing `..` or `//` are rejected (path traversal guard)
+- Paths containing `..` or `//` are rejected at scan time and at request time for decoded URL parameter values
 - Invalid names are skipped with a warning — they never cause a crash
-- Decoded URL parameter values are also checked for `..` and `//` at request time
 
 ---
 
