@@ -1,6 +1,6 @@
 {
   "name": "bini-router",
-  "version": "1.0.38",
+  "version": "1.0.39",
   "description": "File-based routing, nested layouts, auto-imports, and Hono-powered API routes for Vite + React",
   "author": "bini.js",
   "license": "MIT",
@@ -20,7 +20,9 @@
       }
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
@@ -39,11 +41,21 @@
     "react-router-dom": ">=6.0.0"
   },
   "peerDependenciesMeta": {
-    "hono": { "optional": false },
-    "vite": { "optional": false },
-    "react": { "optional": false },
-    "react-dom": { "optional": false },
-    "react-router-dom": { "optional": false }
+    "hono": {
+      "optional": false
+    },
+    "vite": {
+      "optional": false
+    },
+    "react": {
+      "optional": false
+    },
+    "react-dom": {
+      "optional": false
+    },
+    "react-router-dom": {
+      "optional": false
+    }
   },
   "devDependencies": {
     "@types/node": "^25.3.5",
