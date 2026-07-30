@@ -7,16 +7,11 @@ import mdx from '@mdx-js/rollup';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-// Extension priority when multiple files share a base name (e.g. both
-// page.tsx and page.mdx exist in the same folder): tsx > jsx > ts > js > mdx > md.
-// findFile() checks candidates in array order and returns the first match,
-// so this declaration order IS the priority order — no separate sorting or
-// comparison logic needed anywhere else.
-//
-// Only 'page' files and general flat/content routes (about.mdx, login.md,
-// etc.) may be .mdx/.md. layout/not-found/loading/error stay TSX/JSX/TS/JS
-// only — they define structural boundaries (nesting, error/loading state),
-// not content, so they remain real components.
+// Extension priority for shared base names (e.g. page.tsx + page.mdx):
+// tsx > jsx > ts > js > mdx > md — this declaration order is the priority
+// order, since findFile() returns the first match.
+// layout/not-found/loading/error stay TSX/JSX/TS/JS only; page and flat
+// content routes (about.mdx, login.md) also support .mdx/.md.
 const SPECIAL_FILE_EXTS = ['.tsx', '.jsx', '.ts', '.js'] as const;
 const SUPPORTED_EXTS = [...SPECIAL_FILE_EXTS, '.mdx', '.md'] as const;
 const PAGE_FILES = SUPPORTED_EXTS.map(e => `page${e}`);
@@ -391,9 +386,8 @@ function readTsconfigAliases(): Record<string, string> {
 }
 
 function toImportPath(filePath: string, aliases: Record<string, string>): string {
-  // .mdx is NOT in Vite's default resolve.extensions list, so the extension
-  // must be kept explicit in the generated import — unlike .tsx/.ts/.jsx/.js,
-  // which all resolve fine without one.
+  // .mdx/.md aren't in Vite's default resolve.extensions, so keep the
+  // extension explicit — unlike .tsx/.ts/.jsx/.js, which resolve fine without one.
   const keepExt = path.extname(filePath) === '.mdx' || path.extname(filePath) === '.md';
 
   for (const [alias, target] of Object.entries(aliases)) {
@@ -415,12 +409,8 @@ function hasDefaultExport(filePath: string): boolean {
     if (stats.size > MAX_FILE_SIZE) return false;
     if (stats.size === 0) return false;
 
-    // MDX/Markdown compile to a component with an IMPLICIT default export —
-    // the raw .mdx/.md source is markdown/JSX content, not JS, so it
-    // essentially never contains a literal "export default" string even
-    // though the compiled output always has one. Any non-empty .mdx/.md
-    // file is therefore treated as valid; the regex check below only makes
-    // sense for real JS/TS/JSX.
+    // MDX/Markdown compile to a component with an implicit default export,
+    // so any non-empty .mdx/.md file is treated as valid.
     const ext = path.extname(filePath);
     if (ext === '.mdx' || ext === '.md') return true;
 
@@ -530,11 +520,8 @@ function resolveLayoutChain(pageDir: string, appDir: string): string[] {
 }
 
 // ─── Nearest-boundary resolution (not-found / loading) ────────────────────────
-//
-// Mirrors resolveLayoutChain's walk-up-to-appDir traversal, but returns only
-// the CLOSEST match instead of the full chain — this is what gives not-found
-// and loading files "nearest wins" scoping: a file inside a subfolder shadows
-// the same-named file in any ancestor folder, all the way up to appDir.
+// Same walk-up-to-appDir traversal as resolveLayoutChain, but returns only
+// the closest match — gives not-found/loading "nearest wins" scoping.
 
 function resolveNearestFile(
   startDir: string,
@@ -568,10 +555,8 @@ function resolveNearestFile(
   return null;
 }
 
-// Resolves (and, if needed, registers a lazy import for) the nearest loading
-// component for a given directory. Always returns a usable component name —
-// falls back to the built-in 'Spinner' when no loading file is found up the
-// chain to appDir.
+// Resolves (and lazy-imports, if needed) the nearest loading component —
+// falls back to the built-in 'Spinner' if none is found up the chain.
 function resolveLoadingComponentName(
   dir: string,
   appDir: string,
@@ -598,11 +583,8 @@ function resolveLoadingComponentName(
   return name;
 }
 
-// Resolves (and, if needed, registers a lazy import for) the nearest custom
-// error.tsx for a given directory. Unlike loading, there's no equivalent of
-// 'Spinner' to fall back to by name — the built-in ErrorBoundary already
-// knows how to render its own generic fallback when no custom component is
-// supplied, so this simply returns null when nothing is found up the chain.
+// Resolves (and lazy-imports, if needed) the nearest custom error.tsx —
+// returns null if none exists, since ErrorBoundary has its own fallback.
 function resolveErrorComponentName(
   dir: string,
   appDir: string,
@@ -630,17 +612,9 @@ function resolveErrorComponentName(
 }
 
 // ─── Not-found boundary collection ─────────────────────────────────────────────
-//
-// A "boundary" is any directory (including appDir itself) that defines its
-// own not-found file. Unmatched URLs render the not-found belonging to the
-// NEAREST ancestor boundary — e.g. src/app/blog/not-found.tsx catches any
-// unmatched /blog/* URL, shadowing the root not-found for that subtree, while
-// routes outside /blog still fall through to the root (or Default404).
-//
-// This is implemented as one wildcard <Route path="{dir}/*"> per boundary
-// directory. React Router ranks routes by specificity automatically (more
-// static segments beats a shorter wildcard), so nested boundaries naturally
-// take precedence over shallower ones without any manual ordering.
+// Each directory with its own not-found.tsx becomes a wildcard boundary
+// (<Route path="{dir}/*">). React Router ranks by specificity automatically,
+// so nested boundaries win over shallower ones with no manual ordering.
 
 interface NotFoundBoundary {
   dirRoutePath: string;
@@ -863,11 +837,8 @@ function deduplicateRoutes(routes: RouteNode[]): RouteNode[] {
         route.layouts.length === existing.layouts.length &&
         extensionPriority(route.filePath) < extensionPriority(existing.filePath)
       ) {
-        // Same layout depth on both sides — this is a genuine same-folder
-        // collision (e.g. about.tsx AND about.mdx both present). Break the
-        // tie with the same tsx > jsx > ts > js > mdx > md priority findFile()
-        // uses for special files, instead of arbitrary filesystem/traversal
-        // order.
+        // Same layout depth — genuine same-folder collision. Break the tie
+        // with extension priority instead of arbitrary traversal order.
         seen.set(route.routePath, route);
       }
     }
@@ -994,9 +965,7 @@ class ErrorBoundary extends React.Component<
   override render() {
     if (this.state.error) {
       const reset = () => this.setState({ error: null });
-      // A folder's own error.tsx (nearest boundary wins, same as
-      // not-found/loading) always takes priority over the built-in fallback,
-      // in both dev and prod.
+      // A folder's own error.tsx always wins over the built-in fallback.
       if (this.props.fallback) {
         const Fallback = this.props.fallback;
         return <Fallback error={this.state.error} reset={reset} />;
@@ -1144,21 +1113,14 @@ function generateApp(appDir: string, basePath: string = '', strictMode = false):
   }
 
   // ─── Folder-scoped loading resolution ─────────────────────────────────────
-  // Each layout and each page resolves its OWN nearest loading.tsx, walking
-  // up from its own directory to appDir. A loading.tsx in a subfolder only
-  // affects that subfolder's Suspense boundaries; anything without a closer
-  // match falls through to an ancestor's loading.tsx, and ultimately to the
-  // root's loading.tsx (if any) or the built-in Spinner.
+  // Each layout/page resolves its own nearest loading.tsx (nearest wins,
+  // falls back to an ancestor's or the built-in Spinner).
   const loadingFileToName = new Map<string, string>();
   const layoutLoadingNames = new Map<string, string>();
   const pageLoadingNames = new Map<string, string>();
 
   // ─── Folder-scoped error.tsx resolution ────────────────────────────────────
-  // Same nearest-wins scoping as loading, but for error boundaries. A folder's
-  // own error.tsx catches errors thrown anywhere inside that folder's subtree
-  // (unless a deeper folder defines its own, which then takes over for that
-  // narrower scope) — falls back to the built-in generic ErrorBoundary UI if
-  // no error.tsx exists anywhere up the chain.
+  // Same nearest-wins scoping as loading, for error boundaries.
   const errorFileToName = new Map<string, string>();
   const layoutErrorNames = new Map<string, string>();
   const pageErrorNames = new Map<string, string>();
@@ -1209,10 +1171,7 @@ function generateApp(appDir: string, basePath: string = '', strictMode = false):
   }
 
   // ─── Folder-scoped not-found resolution ────────────────────────────────────
-  // Every directory that defines its own not-found.tsx becomes a wildcard
-  // boundary. React Router ranks routes by specificity automatically, so a
-  // deeper boundary (more static segments) always wins over a shallower one
-  // for URLs under its subtree — no manual ordering required.
+  // Each directory with its own not-found.tsx becomes a wildcard boundary.
   const notFoundBoundaries = collectNotFoundBoundaries(appDir, appDir, '', basePath);
   const rootEffectivePath = basePath || '/';
 
@@ -1264,11 +1223,10 @@ function generateApp(appDir: string, basePath: string = '', strictMode = false):
 
   const basenameValue = basePath || (import.meta as any).env?.BASE_URL || '/';
 
-  return `
-     // @ts-nocheck
-    // oxlint-disable
-   // oxfmt-ignore
-  // ⚠️  Auto-generated by bini-router — do not edit.
+  return `// @ts-nocheck
+// oxlint-disable
+// oxfmt-ignore
+// ⚠️  Auto-generated by bini-router — do not edit.
 
 import React, { Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Outlet } from 'react-router-dom';
@@ -2000,9 +1958,7 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
 
       if (!fs.existsSync(appDir)) return;
 
-      // NOTE: .env loading is handled natively by Vite itself (and by the
-      // `biniEnv()` plugin's envPrefix registration) — bini-env never
-      // exported a `loadEnv` function, so no call is needed here.
+      // .env loading is handled natively by Vite / biniEnv()'s envPrefix.
 
       server.watcher.add(appDir);
 
@@ -2099,9 +2055,7 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
     },
 
     async configurePreviewServer(server): Promise<void> {
-      // NOTE: .env loading is handled natively by Vite itself (and by the
-      // `biniEnv()` plugin's envPrefix registration) — bini-env never
-      // exported a `loadEnv` function, so no call is needed here.
+      // .env loading is handled natively by Vite / biniEnv()'s envPrefix.
 
       const apiDir = getApiDir();
       if (fs.existsSync(apiDir)) {
@@ -2191,17 +2145,12 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
     },
   };
 
-  // The mdx() plugin is bundled here so consumers only need to install and
-  // register bini-router — no separate @mdx-js/rollup install or vite.config
-  // wiring required. routerPlugin's `enforce: 'pre'` guarantees its
-  // transform (metadata stripping, auto-imports) runs on the raw .mdx/.md
-  // source BEFORE mdx() compiles it, regardless of array order below.
+  // Bundled internally — consumers don't install/register @mdx-js/rollup
+  // themselves. routerPlugin's enforce:'pre' guarantees it transforms
+  // .mdx/.md before mdx() compiles it, regardless of array order.
   const mdxPlugin = mdx({
     jsxImportSource: 'react',
-    // .md files also go through mdxExtensions (not mdExtensions) so they get
-    // the same JSX/import/export-capable compilation as .mdx — our own
-    // hasDefaultExport/toImportPath/transform-filter logic already treats
-    // .md and .mdx identically, so the compiler needs to match that.
+    // .md routes through mdxExtensions (not mdExtensions) for full JSX support.
     mdExtensions: [],
     mdxExtensions: ['.mdx', '.md'],
     ...options.mdx,
