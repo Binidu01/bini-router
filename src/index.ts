@@ -7,11 +7,6 @@ import mdx from '@mdx-js/rollup';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-// Extension priority for shared base names (e.g. page.tsx + page.mdx):
-// tsx > jsx > ts > js > mdx > md — this declaration order is the priority
-// order, since findFile() returns the first match.
-// layout/not-found/loading/error stay TSX/JSX/TS/JS only; page and flat
-// content routes (about.mdx, login.md) also support .mdx/.md.
 const SPECIAL_FILE_EXTS = ['.tsx', '.jsx', '.ts', '.js'] as const;
 const SUPPORTED_EXTS = [...SPECIAL_FILE_EXTS, '.mdx', '.md'] as const;
 const PAGE_FILES = SUPPORTED_EXTS.map(e => `page${e}`);
@@ -31,8 +26,8 @@ const MAX_DEPTH = 100;
 const ALLOWED_ROUTE_PATTERN = /^[a-zA-Z0-9_-]+$/;
 const ALLOWED_PARAM_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 const MAX_ROUTE_SEGMENT_LENGTH = 100;
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB (for file parsing)
-const DEFAULT_BODY_SIZE_LIMIT = 1024 * 1024; // 1MB (sensible default for API requests)
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const DEFAULT_BODY_SIZE_LIMIT = 1024 * 1024;
 
 // ─── Metadata Types ───────────────────────────────────────────────────────────
 
@@ -108,22 +103,13 @@ export interface BiniPluginOptions {
   cors?: boolean | { origin?: string; methods?: string[]; headers?: string[] };
   strictMode?: boolean;
   basePath?: string;
-  bodySizeLimit?: number; // in bytes, defaults to 1MB
-  /**
-   * Options passed through to the bundled @mdx-js/rollup plugin that powers
-   * .mdx/.md route support. bini-router already configures sensible
-   * defaults (React's automatic JSX runtime, .mdx + .md extensions) — this
-   * is only for overriding or extending that, e.g. adding remark/rehype
-   * plugins. You do not need to install or register @mdx-js/rollup yourself.
-   */
+  bodySizeLimit?: number;
   mdx?: Parameters<typeof mdx>[0];
 }
 
-// ─── Built-in Default Components (injected only when needed) ─────────────────
+// ─── Built-in Default Components ─────────────────────────────────────────────
 
 const DEFAULT_LOADING_COMPONENT = `
-// Built-in Bini Router Loading Component
-// Override by creating src/app/loading.tsx
 function Spinner() {
   const [isDark, setIsDark] = React.useState(false);
   
@@ -141,12 +127,7 @@ function Spinner() {
   }, []);
   
   const styles = {
-    root: {
-      margin: 0,
-      padding: 0,
-      minHeight: '100vh',
-      width: '100%',
-    },
+    root: { margin: 0, padding: 0, minHeight: '100vh', width: '100%' },
     container: {
       minHeight: '100vh',
       width: '100%',
@@ -157,11 +138,7 @@ function Spinner() {
       margin: 0,
       padding: 0,
     },
-    spinnerWrapper: {
-      position: 'relative' as const,
-      width: '3rem',
-      height: '3rem',
-    },
+    spinnerWrapper: { position: 'relative' as const, width: '3rem', height: '3rem' },
     outerRing: {
       position: 'absolute' as const,
       inset: 0,
@@ -194,12 +171,8 @@ function Spinner() {
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { margin: 0; padding: 0; }
         @keyframes spin {
-          from {
-            transform: rotate(0deg);
-          }
-          to {
-            transform: rotate(360deg);
-          }
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
         }
       \`}</style>
     </div>
@@ -207,8 +180,6 @@ function Spinner() {
 }`;
 
 const DEFAULT_404_COMPONENT = `
-// Built-in Bini Router 404 Page
-// Override by creating src/app/not-found.tsx
 function Default404() {
   const [isDark, setIsDark] = React.useState(false);
   
@@ -226,12 +197,7 @@ function Default404() {
   }, []);
   
   const styles = {
-    root: {
-      margin: 0,
-      padding: 0,
-      minHeight: '100vh',
-      width: '100%',
-    },
+    root: { margin: 0, padding: 0, minHeight: '100vh', width: '100%' },
     container: {
       minHeight: '100vh',
       width: '100%',
@@ -245,13 +211,7 @@ function Default404() {
       fontFamily: 'system-ui, -apple-system, sans-serif',
       margin: 0,
     },
-    wrapper: {
-      maxWidth: '42rem',
-      margin: '0 auto',
-      display: 'flex',
-      flexDirection: 'column' as const,
-      gap: '1.5rem',
-    },
+    wrapper: { maxWidth: '42rem', margin: '0 auto', display: 'flex', flexDirection: 'column' as const, gap: '1.5rem' },
     number: {
       fontSize: '8rem',
       fontWeight: 'bold',
@@ -262,16 +222,8 @@ function Default404() {
       backgroundClip: 'text',
       color: 'transparent',
     },
-    title: {
-      fontSize: '1.5rem',
-      fontWeight: 600,
-      color: isDark ? '#ffffff' : '#000000',
-    },
-    message: {
-      color: isDark ? '#a3a3a3' : '#737373',
-      maxWidth: '28rem',
-      margin: '0 auto',
-    },
+    title: { fontSize: '1.5rem', fontWeight: 600, color: isDark ? '#ffffff' : '#000000' },
+    message: { color: isDark ? '#a3a3a3' : '#737373', maxWidth: '28rem', margin: '0 auto' },
     button: {
       display: 'inline-block',
       padding: '0.75rem 2rem',
@@ -388,8 +340,6 @@ function readTsconfigAliases(): Record<string, string> {
 }
 
 function toImportPath(filePath: string, aliases: Record<string, string>): string {
-  // .mdx/.md aren't in Vite's default resolve.extensions, so keep the
-  // extension explicit — unlike .tsx/.ts/.jsx/.js, which resolve fine without one.
   const keepExt = path.extname(filePath) === '.mdx' || path.extname(filePath) === '.md';
 
   for (const [alias, target] of Object.entries(aliases)) {
@@ -411,8 +361,6 @@ function hasDefaultExport(filePath: string): boolean {
     if (stats.size > MAX_FILE_SIZE) return false;
     if (stats.size === 0) return false;
 
-    // MDX/Markdown compile to a component with an implicit default export,
-    // so any non-empty .mdx/.md file is treated as valid.
     const ext = path.extname(filePath);
     if (ext === '.mdx' || ext === '.md') return true;
 
@@ -521,10 +469,6 @@ function resolveLayoutChain(pageDir: string, appDir: string): string[] {
   return chain;
 }
 
-// ─── Nearest-boundary resolution (not-found / loading) ────────────────────────
-// Same walk-up-to-appDir traversal as resolveLayoutChain, but returns only
-// the closest match — gives not-found/loading "nearest wins" scoping.
-
 function resolveNearestFile(
   startDir: string,
   appDir: string,
@@ -542,8 +486,6 @@ function resolveNearestFile(
     const found = findFile(current, candidates);
     if (found) {
       const fullPath = path.join(current, found);
-      // Only accept a file that actually has a usable default export —
-      // otherwise keep walking up, exactly as if the file didn't exist.
       if (hasDefaultExport(fullPath)) return fullPath;
     }
 
@@ -557,8 +499,6 @@ function resolveNearestFile(
   return null;
 }
 
-// Resolves (and lazy-imports, if needed) the nearest loading component —
-// falls back to the built-in 'Spinner' if none is found up the chain.
 function resolveLoadingComponentName(
   dir: string,
   appDir: string,
@@ -585,8 +525,6 @@ function resolveLoadingComponentName(
   return name;
 }
 
-// Resolves (and lazy-imports, if needed) the nearest custom error.tsx —
-// returns null if none exists, since ErrorBoundary has its own fallback.
 function resolveErrorComponentName(
   dir: string,
   appDir: string,
@@ -612,11 +550,6 @@ function resolveErrorComponentName(
 
   return name;
 }
-
-// ─── Not-found boundary collection ─────────────────────────────────────────────
-// Each directory with its own not-found.tsx becomes a wildcard boundary
-// (<Route path="{dir}/*">). React Router ranks by specificity automatically,
-// so nested boundaries win over shallower ones with no manual ordering.
 
 interface NotFoundBoundary {
   dirRoutePath: string;
@@ -839,8 +772,6 @@ function deduplicateRoutes(routes: RouteNode[]): RouteNode[] {
         route.layouts.length === existing.layouts.length &&
         extensionPriority(route.filePath) < extensionPriority(existing.filePath)
       ) {
-        // Same layout depth — genuine same-folder collision. Break the tie
-        // with extension priority instead of arbitrary traversal order.
         seen.set(route.routePath, route);
       }
     }
@@ -967,7 +898,6 @@ class ErrorBoundary extends React.Component<
   override render() {
     if (this.state.error) {
       const reset = () => this.setState({ error: null });
-      // A folder's own error.tsx always wins over the built-in fallback.
       if (this.props.fallback) {
         const Fallback = this.props.fallback;
         return <Fallback error={this.state.error} reset={reset} />;
@@ -1026,11 +956,6 @@ class ErrorBoundary extends React.Component {
 }`;
 }
 
-// ─── FIXED: TitleSetter with useEffect ──────────────────────────────────────
-// Previously, this used document.title directly in the render phase,
-// causing hydration mismatches because document doesn't exist during SSR.
-// Now it only runs on the client after hydration.
-
 function generateTitleSetter(ts: boolean): string {
   return ts ? `
 function TitleSetter({ title }: { title: string }) {
@@ -1070,7 +995,6 @@ export interface RouteManifest {
 export function generateRouteManifest(appDir: string, basePath: string = ''): RouteManifest {
   let routes = scanRoutes(appDir, appDir, '', basePath);
   
-  // Add root page if exists
   const rootPage = findFile(appDir, PAGE_FILES);
   if (rootPage) {
     const rootRoutePath = normalizeRoutePath('/', basePath);
@@ -1082,7 +1006,6 @@ export function generateRouteManifest(appDir: string, basePath: string = ''): Ro
     });
   }
 
-  // Filter out invalid routes
   const validRoutes = deduplicateRoutes(
     routes.filter(r => hasDefaultExport(r.filePath))
   );
@@ -1100,7 +1023,6 @@ export function generateRouteManifest(appDir: string, basePath: string = ''): Ro
       staticRoutes.push(route.routePath);
     }
 
-    // Extract title from layout chain
     const title = route.layouts.map(l => parseLayoutTitle(l)).filter(Boolean)[0] || undefined;
     
     metadata[route.routePath] = {
@@ -1213,15 +1135,10 @@ function generateApp(appDir: string, basePath: string = '', strictMode = false):
     }
   }
 
-  // ─── Folder-scoped loading resolution ─────────────────────────────────────
-  // Each layout/page resolves its own nearest loading.tsx (nearest wins,
-  // falls back to an ancestor's or the built-in Spinner).
   const loadingFileToName = new Map<string, string>();
   const layoutLoadingNames = new Map<string, string>();
   const pageLoadingNames = new Map<string, string>();
 
-  // ─── Folder-scoped error.tsx resolution ────────────────────────────────────
-  // Same nearest-wins scoping as loading, for error boundaries.
   const errorFileToName = new Map<string, string>();
   const layoutErrorNames = new Map<string, string>();
   const pageErrorNames = new Map<string, string>();
@@ -1271,8 +1188,6 @@ function generateApp(appDir: string, basePath: string = '', strictMode = false):
     routeLines.push(renderChain(layouts, cr, layoutNames, pageNames, layoutTitles, layoutLoadingNames, pageLoadingNames, layoutErrorNames, pageErrorNames, 8));
   }
 
-  // ─── Folder-scoped not-found resolution ────────────────────────────────────
-  // Each directory with its own not-found.tsx becomes a wildcard boundary.
   const notFoundBoundaries = collectNotFoundBoundaries(appDir, appDir, '', basePath);
   const rootEffectivePath = basePath || '/';
 
@@ -1343,9 +1258,6 @@ ${titleSetterFn}
 
 ${!hasRootCustomNotFound ? DEFAULT_404_COMPONENT : ''}
 
-// Router-agnostic route tree — safe to render with any <Router> (Browser,
-// Static, Memory, etc). Used directly by SSR/SSG; wrapped in BrowserRouter
-// below for normal client-side rendering.
 export function AppRoutes() {
   return (
     <Routes>
@@ -1620,7 +1532,7 @@ function scanApiRoutes(dir: string, baseRoute = '', basePath: string = '', depth
   return routes;
 }
 
-// ─── Hono dev/preview server ─────────────────────────────────────────────────
+// ─── API Server ─────────────────────────────────────────────────────────────────
 
 function matchRoute(pattern: string, pathname: string): Record<string, string> | null {
   const patParts = pattern.split('/').filter(Boolean);
@@ -1710,12 +1622,10 @@ async function handleApiRequest(
       return;
     }
     
-    // Handle CORS based on config
     if (corsConfig) {
       if (req.method === 'OPTIONS') {
         res.statusCode = 204;
         
-        // Determine CORS settings
         const corsOptions = typeof corsConfig === 'boolean' 
           ? { origin: '*', methods: allowedMethods, headers: 'Content-Type, Authorization, X-Requested-With' }
           : { origin: corsConfig.origin || '*', methods: corsConfig.methods || allowedMethods, headers: corsConfig.headers || 'Content-Type, Authorization, X-Requested-With' };
@@ -1735,7 +1645,6 @@ async function handleApiRequest(
     let cache = getCache();
     if (!cache) {
       const rawRoutes = scanApiRoutes(apiDir, '');
-      // For dev/preview, remove /api prefix from route paths to match stripped URL
       cache = { 
         routes: rawRoutes.map(route => ({
           ...route,
@@ -1763,7 +1672,6 @@ async function handleApiRequest(
       return;
     }
 
-    // Read body with size limit
     const chunks: Buffer[] = [];
     let totalSize = 0;
     
@@ -1830,7 +1738,6 @@ async function handleApiRequest(
           continue;
         }
 
-        // Apply CORS to response if enabled
         if (corsConfig) {
           const headers = new Headers(webRes.headers);
           const corsOptions = typeof corsConfig === 'boolean' 
@@ -1958,10 +1865,10 @@ function escapeHtml(str: string): string {
 
 export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
   const { 
-    cors: corsConfig = false,  // Disabled by default
+    cors: corsConfig = false,
     strictMode = true,
     basePath = '',
-    bodySizeLimit = DEFAULT_BODY_SIZE_LIMIT  // 1MB default
+    bodySizeLimit = DEFAULT_BODY_SIZE_LIMIT
   } = options;
 
   const getAppDir = (): string => path.join(process.cwd(), options.appDir ?? 'src/app');
@@ -1972,6 +1879,9 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
   let honoCache: { routes: ApiRoute[] } | null = null;
   const eventLog = new Map<string, number>();
   let isGenerating = false;
+
+  // ─── Build mode detection ──────────────────────────────────────────────
+  let isBuild = false;
 
   function shouldProcess(file: string, event: string): boolean {
     const key = `${file}:${event}`;
@@ -2037,7 +1947,6 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
       if (applyApp() !== null) {
-        // Invalidate the virtual module cache so HMR picks up route changes
         const mod = server.moduleGraph.getModuleById('\0virtual:bini-routes');
         if (mod) server.moduleGraph.invalidateModule(mod);
         server.ws.send({ type: 'full-reload', path: '*' });
@@ -2059,6 +1968,12 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
   const routerPlugin: Plugin = {
     name: 'bini-router',
     enforce: 'pre',
+
+    // ─── CONFIG: Detect build mode ──────────────────────────────────────────
+    config(_, env) {
+      isBuild = env.command === 'build';
+      applyApp();
+    },
 
     transform: {
       filter: {
@@ -2087,10 +2002,6 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
       },
     },
 
-    config(): void {
-      applyApp();
-    },
-    
     buildStart(): void {
       applyApp();
     },
@@ -2109,8 +2020,6 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
       const apiDir = getApiDir();
 
       if (!fs.existsSync(appDir)) return;
-
-      // .env loading is handled natively by Vite / biniEnv()'s envPrefix.
 
       server.watcher.add(appDir);
 
@@ -2196,7 +2105,6 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
           }
         });
 
-        // Strip /api prefix from URL before handling
         server.middlewares.use((req: any, res: any, next: any) => {
           if (!req.url?.startsWith('/api')) return next();
           req.url = req.url.replace(/^\/api/, '') || '/';
@@ -2207,11 +2115,8 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
     },
 
     async configurePreviewServer(server): Promise<void> {
-      // .env loading is handled natively by Vite / biniEnv()'s envPrefix.
-
       const apiDir = getApiDir();
       if (fs.existsSync(apiDir)) {
-        // Strip /api prefix from URL before handling
         server.middlewares.use((req: any, res: any, next: any) => {
           if (!req.url?.startsWith('/api')) return next();
           req.url = req.url.replace(/^\/api/, '') || '/';
@@ -2224,9 +2129,31 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
     },
 
     transformIndexHtml: {
-      order: 'pre',
-      handler(html): string {
+      order: 'post',
+      handler(html, ctx) {
         try {
+          // ─── INJECT CSS LINK FOR PRODUCTION BUILDS ────────────────────
+          // ctx.bundle contains all bundled files, including CSS
+          if (isBuild && ctx.bundle) {
+            const cssFiles: string[] = [];
+            for (const [fileName] of Object.entries(ctx.bundle)) {
+              if (fileName.endsWith('.css')) {
+                cssFiles.push(fileName);
+              }
+            }
+            
+            if (cssFiles.length > 0) {
+              const cssLinks = cssFiles.map(f => 
+                `<link rel="stylesheet" href="/${f}">`
+              ).join('\n    ');
+              
+              if (!html.includes('rel="stylesheet"')) {
+                html = html.replace('</head>', `${cssLinks}\n  </head>`);
+              }
+            }
+          }
+          // ─── END CSS INJECTION ────────────────────────────────────────
+
           const meta = parseAppMetadata(getAppDir());
 
           if (!meta.title && !meta.description && !meta.canonical && !meta.manifest &&
@@ -2296,7 +2223,6 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
       },
     },
 
-    // ─── Route Manifest Virtual Module ──────────────────────────────────────
     resolveId(id) {
       if (id === 'virtual:bini-routes' || id === '\0virtual:bini-routes') {
         return '\0virtual:bini-routes';
@@ -2313,12 +2239,8 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
     },
   };
 
-  // Bundled internally — consumers don't install/register @mdx-js/rollup
-  // themselves. routerPlugin's enforce:'pre' guarantees it transforms
-  // .mdx/.md before mdx() compiles it, regardless of array order.
   const mdxPlugin = mdx({
     jsxImportSource: 'react',
-    // .md routes through mdxExtensions (not mdExtensions) for full JSX support.
     mdExtensions: [],
     mdxExtensions: ['.mdx', '.md'],
     ...options.mdx,
@@ -2327,5 +2249,4 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
   return [routerPlugin, mdxPlugin];
 }
 
-// Re-export types and utilities for external use
 export type { Plugin, ViteDevServer } from 'vite';

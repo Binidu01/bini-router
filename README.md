@@ -6,12 +6,11 @@
 [![license](https://img.shields.io/badge/license-MIT-00CFFF?labelColor=0a0a0a&style=flat-square)](./LICENSE)
 [![vite](https://img.shields.io/badge/vite-8%2B-646cff?labelColor=0a0a0a&style=flat-square)](https://vitejs.dev)
 [![react](https://img.shields.io/badge/react-18%2B-61dafb?labelColor=0a0a0a&style=flat-square)](https://react.dev)
-[![hono](https://img.shields.io/badge/hono-powered-fb923c?labelColor=0a0a0a&style=flat-square)](https://hono.dev)
 [![mdx](https://img.shields.io/badge/mdx-built--in-f472b6?labelColor=0a0a0a&style=flat-square)](https://mdxjs.com)
 [![typescript](https://img.shields.io/badge/typescript-ready-3178c6?labelColor=0a0a0a&style=flat-square)](https://www.typescriptlang.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-00CFFF?labelColor=0a0a0a&style=flat-square)](https://github.com/binidu/bini-router/pulls)
 
-**File-based routing, nested layouts, folder-scoped loading/error/404 boundaries, MDX pages, and Hono-powered API routes for Vite.**
+**File-based routing, nested layouts, folder-scoped loading/error/404 boundaries, MDX pages, and Web-standard `Request → Response` API routes for Vite.**
 Like Next.js App Router — but pure SPA, zero server required.
 
 </div>
@@ -26,7 +25,7 @@ Like Next.js App Router — but pure SPA, zero server required.
 - 🎯 **Folder-scoped boundaries** — `loading.tsx`, `not-found.tsx`, and `error.tsx` all use "nearest wins" resolution: a file in a subfolder only affects that subfolder, shadowing (but not deleting) the same file in any ancestor folder — same mental model as layouts
 - 🏷️ **Per-route metadata** — `export const metadata` in any layout sets `document.title` at runtime; root layout metadata is injected into `index.html` at build time
 - 🔀 **Dynamic segments** — `[id]/page.tsx` → `/:id`, `[...slug]` → catch-all
-- 🌐 **API routes** — Hono-powered, pure `Request → Response` handlers in `src/app/api/`
+- 🌐 **API routes** — plain `Request → Response` handlers in `src/app/api/`, served in dev/preview. Export a Hono app (or anything with a `.fetch(request)` method) and it's handled automatically, or export a plain function — no framework required either way
 - ✨ **Auto-imports** — `useState`, `useEffect`, `Link`, `useNavigate`, `getEnv` and more available in every page (including `.mdx`/`.md`) without importing
 - 🌿 **Auto env loading** — `.env` loaded automatically by Vite; `getEnv`/`requireEnv` auto-imported from [bini-env](https://www.npmjs.com/package/bini-env) wherever used
 - 🛡️ **Error boundaries with custom overrides** — every layout/page is crash-isolated by default, and a folder's own `error.tsx` can supply custom fallback UI with a `reset()` callback
@@ -44,10 +43,10 @@ Like Next.js App Router — but pure SPA, zero server required.
 ## Install
 
 ```bash
-npm install bini-router hono bini-env
+npm install bini-router bini-env
 ```
 
-> `hono` and `bini-env` are required peer dependencies. MDX/Markdown support ships built in with no extra install — `@mdx-js/rollup` is bundled inside bini-router itself.
+> `bini-env` powers the `getEnv`/`requireEnv` auto-imports. MDX/Markdown support ships built in with no extra install — `@mdx-js/rollup` is bundled inside bini-router itself. Hono is **not** a dependency of bini-router — see [API Routes](#api-routes) below.
 
 ---
 
@@ -134,7 +133,7 @@ export default function Profile() {
 
 ## Environment Variables
 
-bini-router uses [bini-env](https://www.npmjs.com/package/bini-env) to handle environment variables automatically:
+bini-router pairs with [bini-env](https://www.npmjs.com/package/bini-env) to handle environment variables:
 
 - **Client code** — use `import.meta.env.BINI_*` (prefix set automatically by bini-env)
 - **API routes** — use `getEnv()` or `requireEnv()` — no dotenv import needed
@@ -431,14 +430,14 @@ export const metadata = {
   robots      : 'index, follow',
   manifest    : '/site.webmanifest',
   keywords    : ['react', 'vite', 'dashboard'],        // array or string
-  authors     : [{ name: 'Your Name', url: 'https://example.com' }],
+  authors     : [{ name: 'Your Name' }],
   canonical   : 'https://myapp.com/dashboard',
   openGraph: {
     title      : 'Dashboard',
     description: 'Your personal dashboard',
     url        : 'https://myapp.com/dashboard',
     type       : 'website',
-    images     : [{ url: '/og.png', width: 1200, height: 630 }],
+    images     : [{ url: '/og.png' }],
   },
   twitter: {
     card       : 'summary_large_image',
@@ -457,11 +456,19 @@ export const metadata = {
 
 All fields are optional. Only the root `layout.tsx` metadata is used for `index.html` injection. All metadata values are HTML-escaped before injection.
 
+> For `authors`, only the first entry's `name` is read into the `<meta name="author">` tag — extra keys (like a per-author `url`) and additional array entries aren't rendered. For `openGraph.images` / `twitter.images`, only the first entry's `url` is used — `width`/`height` and other keys are accepted but not emitted into HTML.
+
 ---
 
 ## API Routes
 
 Write your API files in `src/app/api/`. The same handler code runs in both `vite dev` and `vite preview`.
+
+Handlers can be either:
+- **A `.fetch(request)`-style app** — a [Hono](https://hono.dev) app works directly, since Hono apps expose a `.fetch` method, but this isn't Hono-specific: anything exporting an object with a `.fetch(request)` method is handled the same way.
+- **A plain function handler** — `(req: Request) => Response`, with zero extra dependencies.
+
+Route matching itself (static segments, `:param` segments, `*` catch-alls) is done by bini-router's own matcher before your handler is invoked — Hono (or any other framework) is optional and only used for whatever you build inside your own handler.
 
 API handlers are loaded on-demand and cached by `mtime` — touching a file in dev busts the cache immediately without a server restart.
 
@@ -474,7 +481,7 @@ vite dev      # API routes live at http://localhost:3000/api/*
 vite preview  # same behaviour, served from the dist build
 ```
 
-### Hono app (recommended)
+### Hono app (optional, recommended for larger APIs)
 
 ```ts
 // src/app/api/hello.ts
@@ -493,9 +500,9 @@ app.all('/hello', (c) => {
 export default app
 ```
 
-Write routes **without** the `/api` prefix — bini-router strips it before your handler sees the request in dev/preview.
+Write routes **without** the `/api` prefix — bini-router strips it before your handler sees the request in dev/preview. Requires `npm install hono` if you choose this style — it is not bundled with bini-router.
 
-### Plain function handlers
+### Plain function handlers (no extra dependencies)
 
 ```ts
 // src/app/api/hello.ts
@@ -565,7 +572,7 @@ With `basePath: '/app'`:
 - `BrowserRouter basename` is set to `"/app"` at build time
 
 > Dev and preview always serve API routes at `/api/*` regardless of `basePath` — the middleware is mounted directly at `/api`.
-> Without `basePath` set, `basename` falls back to `"/"`.
+> Without `basePath` set, `basename` falls back to Vite's `import.meta.env.BASE_URL` if it's set, or `"/"` otherwise.
 
 ---
 
