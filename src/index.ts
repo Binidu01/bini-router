@@ -26,12 +26,13 @@ const EVENT_DEDUP_MS = 500;
 const EVENT_TTL_MS = 2000;
 const MAX_DEPTH = 100;
 
-// ─── Security Constants ───────────────────────────────────────────────────────
+// ─── Security Constants ─────────────────────────────────────────────────────
 
 const ALLOWED_ROUTE_PATTERN = /^[a-zA-Z0-9_-]+$/;
 const ALLOWED_PARAM_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 const MAX_ROUTE_SEGMENT_LENGTH = 100;
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB (for file parsing)
+const DEFAULT_BODY_SIZE_LIMIT = 1024 * 1024; // 1MB (sensible default for API requests)
 
 // ─── Metadata Types ───────────────────────────────────────────────────────────
 
@@ -104,9 +105,10 @@ interface RouteConflict {
 export interface BiniPluginOptions {
   appDir?: string;
   apiDir?: string;
-  cors?: boolean;
+  cors?: boolean | { origin?: string; methods?: string[]; headers?: string[] };
   strictMode?: boolean;
   basePath?: string;
+  bodySizeLimit?: number; // in bytes, defaults to 1MB
   /**
    * Options passed through to the bundled @mdx-js/rollup plugin that powers
    * .mdx/.md route support. bini-router already configures sensible
@@ -1024,17 +1026,116 @@ class ErrorBoundary extends React.Component {
 }`;
 }
 
+// ─── FIXED: TitleSetter with useEffect ──────────────────────────────────────
+// Previously, this used document.title directly in the render phase,
+// causing hydration mismatches because document doesn't exist during SSR.
+// Now it only runs on the client after hydration.
+
 function generateTitleSetter(ts: boolean): string {
   return ts ? `
 function TitleSetter({ title }: { title: string }) {
-  React.useEffect(() => { document.title = title; }, [title]);
+  React.useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.title = title;
+    }
+  }, [title]);
   return null;
 }` : `
 function TitleSetter({ title }) {
-  React.useEffect(() => { document.title = title; }, [title]);
+  React.useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.title = title;
+    }
+  }, [title]);
   return null;
 }`;
 }
+
+// ─── Route Manifest API ──────────────────────────────────────────────────────
+
+export interface RouteManifest {
+  static: string[];
+  dynamic: string[];
+  all: string[];
+  metadata: {
+    [routePath: string]: {
+      title?: string;
+      layouts: string[];
+      filePath: string;
+      dynamic: boolean;
+    };
+  };
+}
+
+function generateRouteManifest(appDir: string, basePath: string = ''): RouteManifest {
+  let routes = scanRoutes(appDir, appDir, '', basePath);
+  
+  // Add root page if exists
+  const rootPage = findFile(appDir, PAGE_FILES);
+  if (rootPage) {
+    const rootRoutePath = normalizeRoutePath('/', basePath);
+    routes.unshift({
+      routePath: rootRoutePath,
+      filePath: path.join(appDir, rootPage),
+      layouts: resolveLayoutChain(appDir, appDir),
+      dynamic: false,
+    });
+  }
+
+  // Filter out invalid routes
+  const validRoutes = deduplicateRoutes(
+    routes.filter(r => hasDefaultExport(r.filePath))
+  );
+
+  const staticRoutes: string[] = [];
+  const dynamicRoutes: string[] = [];
+  const metadata: RouteManifest['metadata'] = {};
+
+  for (const route of validRoutes) {
+    const isDynamic = route.dynamic || route.routePath.includes(':') || route.routePath.includes('*');
+    
+    if (isDynamic) {
+      dynamicRoutes.push(route.routePath);
+    } else {
+      staticRoutes.push(route.routePath);
+    }
+
+    // Extract title from layout chain
+    const title = route.layouts.map(l => parseLayoutTitle(l)).filter(Boolean)[0] || undefined;
+    
+    metadata[route.routePath] = {
+      title,
+      layouts: route.layouts,
+      filePath: route.filePath,
+      dynamic: isDynamic,
+    };
+  }
+
+  return {
+    static: [...new Set(staticRoutes)],
+    dynamic: [...new Set(dynamicRoutes)],
+    all: [...new Set([...staticRoutes, ...dynamicRoutes])],
+    metadata,
+  };
+}
+
+function getRouteManifestModule(appDir: string, basePath: string): string {
+  const manifest = generateRouteManifest(appDir, basePath);
+  return `
+    export const staticRoutes = ${JSON.stringify(manifest.static)};
+    export const dynamicRoutes = ${JSON.stringify(manifest.dynamic)};
+    export const allRoutes = ${JSON.stringify(manifest.all)};
+    export const routeMetadata = ${JSON.stringify(manifest.metadata)};
+    export default {
+      static: ${JSON.stringify(manifest.static)},
+      dynamic: ${JSON.stringify(manifest.dynamic)},
+      all: ${JSON.stringify(manifest.all)},
+      metadata: ${JSON.stringify(manifest.metadata)},
+    };
+  `;
+}
+
+// ─── Generate App ────────────────────────────────────────────────────────────
 
 function generateApp(appDir: string, basePath: string = '', strictMode = false): string {
   const aliases = readTsconfigAliases();
@@ -1242,13 +1343,24 @@ ${titleSetterFn}
 
 ${!hasRootCustomNotFound ? DEFAULT_404_COMPONENT : ''}
 
-export default function App() {
+// Router-agnostic route tree — safe to render with any <Router> (Browser,
+// Static, Memory, etc). Used directly by SSR/SSG; wrapped in BrowserRouter
+// below for normal client-side rendering.
+export function AppRoutes() {
   return (
-    <BrowserRouter basename={${JSON.stringify(basenameValue)}}>
-      <Routes>
+    <Routes>
 ${routeLines.join('\n')}
 ${notFoundRouteLines.join('\n')}
-      </Routes>
+    </Routes>
+  );
+}
+
+export const basename = ${JSON.stringify(basenameValue)};
+
+export default function App() {
+  return (
+    <BrowserRouter basename={basename}>
+      <AppRoutes />
     </BrowserRouter>
   );
 }
@@ -1584,9 +1696,10 @@ async function handleApiRequest(
   res: any,
   next: any,
   apiDir: string,
-  enableCors: boolean,
+  corsConfig: boolean | { origin?: string; methods?: string[]; headers?: string[] },
   getCache: () => { routes: ApiRoute[] } | null,
   setCache: (v: { routes: ApiRoute[] }) => void,
+  bodySizeLimit: number = DEFAULT_BODY_SIZE_LIMIT,
 ): Promise<void> {
   try {
     const allowedMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'];
@@ -1597,14 +1710,26 @@ async function handleApiRequest(
       return;
     }
     
-    if (enableCors && req.method === 'OPTIONS') {
-      res.statusCode = 204;
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', allowedMethods.join(', '));
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-      res.setHeader('Access-Control-Max-Age', '86400');
-      res.end();
-      return;
+    // Handle CORS based on config
+    if (corsConfig) {
+      if (req.method === 'OPTIONS') {
+        res.statusCode = 204;
+        
+        // Determine CORS settings
+        const corsOptions = typeof corsConfig === 'boolean' 
+          ? { origin: '*', methods: allowedMethods, headers: 'Content-Type, Authorization, X-Requested-With' }
+          : { origin: corsConfig.origin || '*', methods: corsConfig.methods || allowedMethods, headers: corsConfig.headers || 'Content-Type, Authorization, X-Requested-With' };
+        
+        res.setHeader('Access-Control-Allow-Origin', corsOptions.origin);
+        res.setHeader('Access-Control-Allow-Methods', corsOptions.methods.join(', '));
+        res.setHeader('Access-Control-Allow-Headers', corsOptions.headers);
+        if (corsOptions.origin !== '*') {
+          res.setHeader('Access-Control-Allow-Credentials', 'true');
+        }
+        res.setHeader('Access-Control-Max-Age', '86400');
+        res.end();
+        return;
+      }
     }
 
     let cache = getCache();
@@ -1638,9 +1763,24 @@ async function handleApiRequest(
       return;
     }
 
+    // Read body with size limit
     const chunks: Buffer[] = [];
+    let totalSize = 0;
+    
     for await (const chunk of req) {
-      chunks.push(chunk as Buffer);
+      if (chunk instanceof Buffer) {
+        totalSize += chunk.length;
+        if (totalSize > bodySizeLimit) {
+          res.statusCode = 413;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ 
+            error: 'Payload Too Large', 
+            message: `Request body exceeds ${bodySizeLimit} bytes limit` 
+          }));
+          return;
+        }
+        chunks.push(chunk);
+      }
     }
     const body = chunks.length > 0 ? Buffer.concat(chunks) : undefined;
 
@@ -1690,11 +1830,19 @@ async function handleApiRequest(
           continue;
         }
 
-        if (enableCors) {
+        // Apply CORS to response if enabled
+        if (corsConfig) {
           const headers = new Headers(webRes.headers);
-          headers.set('Access-Control-Allow-Origin', '*');
-          headers.set('Access-Control-Allow-Methods', allowedMethods.join(', '));
-          headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+          const corsOptions = typeof corsConfig === 'boolean' 
+            ? { origin: '*', methods: allowedMethods }
+            : { origin: corsConfig.origin || '*', methods: corsConfig.methods || allowedMethods };
+          
+          headers.set('Access-Control-Allow-Origin', corsOptions.origin);
+          headers.set('Access-Control-Allow-Methods', corsOptions.methods.join(', '));
+          if (corsOptions.origin !== '*') {
+            headers.set('Access-Control-Allow-Credentials', 'true');
+          }
+          
           webRes = new Response(webRes.body, { ...webRes, headers });
         }
 
@@ -1810,9 +1958,10 @@ function escapeHtml(str: string): string {
 
 export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
   const { 
-    cors: enableCors = true, 
+    cors: corsConfig = false,  // Disabled by default
     strictMode = true,
-    basePath = ''
+    basePath = '',
+    bodySizeLimit = DEFAULT_BODY_SIZE_LIMIT  // 1MB default
   } = options;
 
   const getAppDir = (): string => path.join(process.cwd(), options.appDir ?? 'src/app');
@@ -1888,6 +2037,9 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
       if (applyApp() !== null) {
+        // Invalidate the virtual module cache so HMR picks up route changes
+        const mod = server.moduleGraph.getModuleById('\0virtual:bini-routes');
+        if (mod) server.moduleGraph.invalidateModule(mod);
         server.ws.send({ type: 'full-reload', path: '*' });
       }
     }, delay);
@@ -2048,8 +2200,8 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
         server.middlewares.use((req: any, res: any, next: any) => {
           if (!req.url?.startsWith('/api')) return next();
           req.url = req.url.replace(/^\/api/, '') || '/';
-          handleApiRequest(req, res, next, apiDir, enableCors,
-            () => honoCache, (v) => { honoCache = v; });
+          handleApiRequest(req, res, next, apiDir, corsConfig,
+            () => honoCache, (v) => { honoCache = v; }, bodySizeLimit);
         });
       }
     },
@@ -2063,8 +2215,8 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
         server.middlewares.use((req: any, res: any, next: any) => {
           if (!req.url?.startsWith('/api')) return next();
           req.url = req.url.replace(/^\/api/, '') || '/';
-          handleApiRequest(req, res, next, apiDir, enableCors,
-            () => honoCache, (v) => { honoCache = v; });
+          handleApiRequest(req, res, next, apiDir, corsConfig,
+            () => honoCache, (v) => { honoCache = v; }, bodySizeLimit);
         });
       }
 
@@ -2142,6 +2294,22 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
           return html;
         }
       },
+    },
+
+    // ─── Route Manifest Virtual Module ──────────────────────────────────────
+    resolveId(id) {
+      if (id === 'virtual:bini-routes' || id === '\0virtual:bini-routes') {
+        return '\0virtual:bini-routes';
+      }
+      return null;
+    },
+
+    load(id) {
+      if (id === '\0virtual:bini-routes') {
+        const appDir = getAppDir();
+        return getRouteManifestModule(appDir, basePath);
+      }
+      return null;
     },
   };
 

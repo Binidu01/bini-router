@@ -32,7 +32,7 @@ Like Next.js App Router — but pure SPA, zero server required.
 - 🛡️ **Error boundaries with custom overrides** — every layout/page is crash-isolated by default, and a folder's own `error.tsx` can supply custom fallback UI with a `reset()` callback
 - ⏳ **Lazy loading** — every route, layout, loading file, and error file is code-split automatically via `React.lazy`
 - 🔄 **HMR** — file watcher with smart debounce (60ms), event deduplication, and live new-folder detection
-- 🔒 **Security** — route segment validation, param name validation, path traversal guards, 10MB file size limits
+- 🔒 **Security** — route segment validation, param name validation, path traversal guards, 10MB source file size limits, and a configurable API request body size limit (1MB default)
 - 📦 **Zero config** — works out of the box
 - 💛 **JavaScript & TypeScript** — full support for both, auto-detected from your project
 
@@ -516,17 +516,35 @@ app.get('/posts/:id', (c) => c.json({ id: c.req.param('id') }))
 export default app
 ```
 
-### CORS
+### Request body size limit
 
-CORS is enabled by default for all `/api/*` routes in dev and preview. Allowed methods: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `HEAD`. Preflight `OPTIONS` requests are handled automatically with a `204` response and a 24-hour `Access-Control-Max-Age`.
-
-Set `cors: false` to disable.
+Incoming request bodies to `/api/*` routes in dev/preview are capped at **1MB by default** to prevent unbounded memory buffering. Requests exceeding the limit receive a `413 Payload Too Large` response before the body is fully read. Adjust it with `bodySizeLimit` (in bytes):
 
 ```ts
-biniroute({ cors: false })
+biniroute({ bodySizeLimit: 5 * 1024 * 1024 }) // 5MB
 ```
 
-> For production deployments, CORS on the generated hosting entry (Netlify/Vercel/Cloudflare/etc.) is configured by **bini-deploy**, which mirrors this same default.
+### CORS
+
+CORS is **disabled by default** for `/api/*` routes in dev and preview. Enable it with `cors: true` for permissive defaults (`origin: '*'`, all standard methods, common headers), or pass an object to configure it precisely:
+
+```ts
+// Permissive — origin: '*', all standard methods
+biniroute({ cors: true })
+
+// Scoped — specific origin, methods, and headers
+biniroute({
+  cors: {
+    origin : 'https://myapp.com',
+    methods: ['GET', 'POST'],
+    headers: ['Content-Type', 'Authorization'],
+  },
+})
+```
+
+Allowed methods checked against incoming requests regardless of CORS config: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `HEAD`. When CORS is enabled, preflight `OPTIONS` requests are handled automatically with a `204` response and a 24-hour `Access-Control-Max-Age`. When a specific (non-`*`) `origin` is configured, `Access-Control-Allow-Credentials: true` is set automatically.
+
+> For production deployments, CORS on the generated hosting entry (Netlify/Vercel/Cloudflare/etc.) is configured separately by **bini-deploy** — check its docs for that target's default.
 
 ---
 
@@ -546,7 +564,7 @@ With `basePath: '/app'`:
 - `BrowserRouter basename` is set to `"/app"` at build time
 
 > Dev and preview always serve API routes at `/api/*` regardless of `basePath` — the middleware is mounted directly at `/api`.
-> Without `basePath` set, `basename` falls back to `import.meta.env.BASE_URL` and then `"/"`.
+> Without `basePath` set, `basename` falls back to `"/"`.
 
 ---
 
@@ -554,16 +572,21 @@ With `basePath: '/app'`:
 
 ```ts
 biniroute({
-  appDir    : 'src/app',      // Default: src/app
-  apiDir    : 'src/app/api',  // Default: src/app/api
-  cors      : true,           // Enable CORS on dev/preview API. Default: true
-  strictMode: true,           // Throw on route conflicts. Default: true
-  basePath  : '',             // Subpath prefix for all routes. Default: ''
-                               //   e.g. '/app' → all routes prefixed with /app
-  mdx       : {},             // Passed through to the bundled @mdx-js/rollup
-                               //   plugin — e.g. remarkPlugins, rehypePlugins.
-                               //   Optional; sensible defaults are applied
-                               //   without this.
+  appDir       : 'src/app',      // Default: src/app
+  apiDir       : 'src/app/api',  // Default: src/app/api
+  cors         : false,          // Enable CORS on dev/preview API. Pass `true` for
+                                  //   permissive defaults, or an object
+                                  //   ({ origin?, methods?, headers? }) to scope it.
+                                  //   Default: false
+  strictMode   : true,           // Throw on route conflicts. Default: true
+  basePath     : '',             // Subpath prefix for all routes. Default: ''
+                                  //   e.g. '/app' → all routes prefixed with /app
+  bodySizeLimit: 1024 * 1024,    // Max request body size (bytes) for dev/preview
+                                  //   API routes. Default: 1MB
+  mdx          : {},             // Passed through to the bundled @mdx-js/rollup
+                                  //   plugin — e.g. remarkPlugins, rehypePlugins.
+                                  //   Optional; sensible defaults are applied
+                                  //   without this.
 })
 ```
 
@@ -592,10 +615,27 @@ bini-router watches `src/app/` during development and regenerates `App.tsx` auto
 - **Deleted file or folder** → removed from routes and triggers reload
 - **Root layout change** → full module graph invalidation + full reload
 - **API file change** → clears module cache entry and route cache, triggers full reload
+- **Route manifest** (`virtual:bini-routes`) → invalidated alongside every route regeneration, so consumers of the virtual module never see stale route data mid-session
 - Events are deduplicated within a 500ms window per `file:event` key (TTL: 2s) to prevent redundant reloads
 - Code generation is guarded by an `isGenerating` flag — concurrent regenerations are dropped, not queued
 
 > You never need to restart the dev server when adding or removing routes.
+
+---
+
+## Route Manifest
+
+Import route metadata anywhere in your app via the `virtual:bini-routes` virtual module — useful for building nav menus, sitemaps, or route-aware tooling without re-implementing the scanner yourself.
+
+```ts
+import routes, { staticRoutes, dynamicRoutes, allRoutes, routeMetadata } from 'virtual:bini-routes'
+
+console.log(routes.static)    // ['/', '/about', '/dashboard', ...]
+console.log(routes.dynamic)   // ['/blog/:slug', ...]
+console.log(routes.metadata)  // { '/dashboard': { title, layouts, filePath, dynamic }, ... }
+```
+
+> TypeScript projects need an ambient module declaration for `virtual:bini-routes` (e.g. in a `vite-env.d.ts`) since it isn't a real file on disk.
 
 ---
 
