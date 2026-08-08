@@ -33,6 +33,7 @@ Like Next.js App Router — but pure SPA, zero server required.
 - ⏳ **Lazy loading** — every route, layout, loading file, and error file is code-split automatically via `React.lazy`
 - 🔄 **HMR** — file watcher with smart debounce (60ms), event deduplication, and live new-folder detection
 - 🔒 **Security** — route segment validation, param name validation, path traversal guards, 10MB source file size limits, and a configurable API request body size limit (1MB default)
+- 🧩 **Programmatic route manifest** — `generateRouteManifest()` is exported for other build tools (SSG generators, sitemap builders, etc.) to reuse bini-router's own route-scanning logic directly, without going through Vite's virtual module system
 - 📦 **Zero config** — works out of the box
 - 💛 **JavaScript & TypeScript** — full support for both, auto-detected from your project
 
@@ -625,7 +626,11 @@ bini-router watches `src/app/` during development and regenerates `App.tsx` auto
 
 ## Route Manifest
 
-Import route metadata anywhere in your app via the `virtual:bini-routes` virtual module — useful for building nav menus, sitemaps, or route-aware tooling without re-implementing the scanner yourself.
+Route metadata (static routes, dynamic routes, per-route titles/layouts) is available two ways, depending on where you need it from.
+
+### Inside app code — `virtual:bini-routes`
+
+Import the virtual module from anywhere Vite bundles — components, layouts, client code:
 
 ```ts
 import routes, { staticRoutes, dynamicRoutes, allRoutes, routeMetadata } from 'virtual:bini-routes'
@@ -635,7 +640,26 @@ console.log(routes.dynamic)   // ['/blog/:slug', ...]
 console.log(routes.metadata)  // { '/dashboard': { title, layouts, filePath, dynamic }, ... }
 ```
 
+This only resolves inside Vite's own build/transform pipeline (app source, or another Vite plugin's bundled code) — it is **not** a real file and can't be `import()`-ed from plain Node scripts or from inside another plugin's own `buildStart`/`closeBundle` hooks, since those run in the plugin container itself, outside Vite's module graph.
+
 > TypeScript projects need an ambient module declaration for `virtual:bini-routes` (e.g. in a `vite-env.d.ts`) since it isn't a real file on disk.
+
+### From other build tools — `generateRouteManifest()`
+
+For anything that needs route data from **outside** Vite's transform pipeline — a companion plugin's own plugin-container code, a standalone Node script, a CLI, an SSG generator — import the function directly from the package:
+
+```ts
+import { generateRouteManifest } from 'bini-router'
+
+const manifest = generateRouteManifest('src/app' /* appDir */, '' /* basePath, optional */)
+
+console.log(manifest.static)    // ['/', '/about', ...]
+console.log(manifest.dynamic)   // ['/blog/:slug', ...]
+console.log(manifest.all)       // static + dynamic combined
+console.log(manifest.metadata)  // per-route title/layouts/filePath/dynamic
+```
+
+This is a plain synchronous function with no Vite dependency at call time — it reads the filesystem directly using the same scanning, extension-priority, and deduplication logic that powers the router itself, so results are always consistent with what actually gets rendered. Wrap the import in a `try/catch` if bini-router might not be installed, or might be an older version that predates this export.
 
 ---
 

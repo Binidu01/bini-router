@@ -1067,7 +1067,7 @@ export interface RouteManifest {
   };
 }
 
-function generateRouteManifest(appDir: string, basePath: string = ''): RouteManifest {
+export function generateRouteManifest(appDir: string, basePath: string = ''): RouteManifest {
   let routes = scanRoutes(appDir, appDir, '', basePath);
   
   // Add root page if exists
@@ -2327,5 +2327,5 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
   return [routerPlugin, mdxPlugin];
 }
 
-// Re-export types for external use
+// Re-export types and utilities for external use
 export type { Plugin, ViteDevServer } from 'vite';
