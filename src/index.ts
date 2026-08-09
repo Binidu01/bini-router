@@ -992,6 +992,12 @@ export interface RouteManifest {
   };
 }
 
+export interface RouteMatchResult {
+  type: 'static' | 'dynamic' | 'not_found';
+  routePath?: string;
+  params?: Record<string, string>;
+}
+
 export function generateRouteManifest(appDir: string, basePath: string = ''): RouteManifest {
   let routes = scanRoutes(appDir, appDir, '', basePath);
   
@@ -1039,6 +1045,66 @@ export function generateRouteManifest(appDir: string, basePath: string = ''): Ro
     all: [...new Set([...staticRoutes, ...dynamicRoutes])],
     metadata,
   };
+}
+
+export function matchRoute(pattern: string, pathname: string): Record<string, string> | null {
+  const patParts = pattern.split('/').filter(Boolean);
+  const urlParts = pathname.split('/').filter(Boolean);
+
+  const isCatchAll = patParts[patParts.length - 1] === '*';
+  if (isCatchAll) {
+    const prefix = patParts.slice(0, -1);
+    if (urlParts.length < prefix.length) return null;
+    
+    for (let i = 0; i < prefix.length; i++) {
+      if (prefix[i].startsWith(':')) continue;
+      if (prefix[i] !== urlParts[i]) return null;
+    }
+    
+    return { '*': urlParts.slice(prefix.length).join('/') };
+  }
+
+  if (patParts.length !== urlParts.length) return null;
+
+  const params: Record<string, string> = {};
+  for (let i = 0; i < patParts.length; i++) {
+    if (patParts[i].startsWith(':')) {
+      const value = decodeURIComponent(urlParts[i]);
+      if (value.includes('..') || value.includes('//')) return null;
+      params[patParts[i].slice(1)] = value;
+    } else if (patParts[i] !== urlParts[i]) {
+      return null;
+    }
+  }
+  return params;
+}
+
+export function matchManifestRoute(
+  manifest: RouteManifest,
+  pathname: string,
+): RouteMatchResult {
+  // Check exact matches first (O(1) lookup)
+  const exact = manifest.metadata[pathname];
+  if (exact) {
+    return { 
+      type: exact.dynamic ? 'dynamic' : 'static', 
+      routePath: pathname 
+    };
+  }
+
+  // Check dynamic patterns
+  for (const pattern of manifest.dynamic) {
+    const params = matchRoute(pattern, pathname);
+    if (params) {
+      return { 
+        type: 'dynamic', 
+        routePath: pattern, 
+        params 
+      };
+    }
+  }
+
+  return { type: 'not_found' };
 }
 
 function getRouteManifestModule(appDir: string, basePath: string): string {
@@ -1533,38 +1599,6 @@ function scanApiRoutes(dir: string, baseRoute = '', basePath: string = '', depth
 }
 
 // ─── API Server ─────────────────────────────────────────────────────────────────
-
-function matchRoute(pattern: string, pathname: string): Record<string, string> | null {
-  const patParts = pattern.split('/').filter(Boolean);
-  const urlParts = pathname.split('/').filter(Boolean);
-
-  const isCatchAll = patParts[patParts.length - 1] === '*';
-  if (isCatchAll) {
-    const prefix = patParts.slice(0, -1);
-    if (urlParts.length < prefix.length) return null;
-    
-    for (let i = 0; i < prefix.length; i++) {
-      if (prefix[i].startsWith(':')) continue;
-      if (prefix[i] !== urlParts[i]) return null;
-    }
-    
-    return { '*': urlParts.slice(prefix.length).join('/') };
-  }
-
-  if (patParts.length !== urlParts.length) return null;
-
-  const params: Record<string, string> = {};
-  for (let i = 0; i < patParts.length; i++) {
-    if (patParts[i].startsWith(':')) {
-      const value = decodeURIComponent(urlParts[i]);
-      if (value.includes('..') || value.includes('//')) return null;
-      params[patParts[i].slice(1)] = value;
-    } else if (patParts[i] !== urlParts[i]) {
-      return null;
-    }
-  }
-  return params;
-}
 
 interface CachedModule {
   mtime: number;

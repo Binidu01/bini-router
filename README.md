@@ -32,7 +32,7 @@ Like Next.js App Router — but pure SPA, zero server required.
 - ⏳ **Lazy loading** — every route, layout, loading file, and error file is code-split automatically via `React.lazy`
 - 🔄 **HMR** — file watcher with smart debounce (60ms), event deduplication, and live new-folder detection
 - 🔒 **Security** — route segment validation, param name validation, path traversal guards, 10MB source file size limits, and a configurable API request body size limit (1MB default)
-- 🧩 **Programmatic route manifest** — `generateRouteManifest()` is exported for other build tools (SSG generators, sitemap builders, etc.) to reuse bini-router's own route-scanning logic directly, without going through Vite's virtual module system
+- 🧩 **Programmatic route manifest & matching** — `generateRouteManifest()`, `matchRoute()`, and `matchManifestRoute()` are all exported for other build tools (SSG generators, dev overlays, sitemap builders, etc.) to reuse bini-router's own route-scanning and matching logic directly, without going through Vite's virtual module system or re-implementing pattern matching themselves
 - 📦 **Zero config** — works out of the box
 - 💛 **JavaScript & TypeScript** — full support for both, auto-detected from your project
 
@@ -468,7 +468,7 @@ Handlers can be either:
 - **A `.fetch(request)`-style app** — a [Hono](https://hono.dev) app works directly, since Hono apps expose a `.fetch` method, but this isn't Hono-specific: anything exporting an object with a `.fetch(request)` method is handled the same way.
 - **A plain function handler** — `(req: Request) => Response`, with zero extra dependencies.
 
-Route matching itself (static segments, `:param` segments, `*` catch-alls) is done by bini-router's own matcher before your handler is invoked — Hono (or any other framework) is optional and only used for whatever you build inside your own handler.
+Route matching itself (static segments, `:param` segments, `*` catch-alls) is done by bini-router's own matcher before your handler is invoked — Hono (or any other framework) is optional and only used for whatever you build inside your own handler. This is the same `matchRoute()` function [exported for external use](#matching-a-concrete-url-against-the-manifest--matchroute--matchmanifestroute) below — API request dispatch and the public matching API share one implementation.
 
 API handlers are loaded on-demand and cached by `mtime` — touching a file in dev busts the cache immediately without a server restart.
 
@@ -667,6 +667,56 @@ console.log(manifest.metadata)  // per-route title/layouts/filePath/dynamic
 ```
 
 This is a plain synchronous function with no Vite dependency at call time — it reads the filesystem directly using the same scanning, extension-priority, and deduplication logic that powers the router itself, so results are always consistent with what actually gets rendered. Wrap the import in a `try/catch` if bini-router might not be installed, or might be an older version that predates this export.
+
+### Matching a concrete URL against the manifest — `matchRoute()` / `matchManifestRoute()`
+
+`generateRouteManifest()` returns route *patterns* (e.g. `/blog/:slug`), not concrete URLs. To find out which pattern a real pathname like `/blog/hello-world` corresponds to — and whether it's static or dynamic — use `matchManifestRoute()`:
+
+```ts
+import { generateRouteManifest, matchManifestRoute } from 'bini-router'
+
+const manifest = generateRouteManifest('src/app')
+const result = matchManifestRoute(manifest, '/blog/hello-world')
+
+console.log(result)
+// { type: 'dynamic', routePath: '/blog/:slug', params: { slug: 'hello-world' } }
+```
+
+`result.type` is one of `'static'`, `'dynamic'`, or `'not_found'`. For dynamic matches, `result.params` contains the extracted segment values (and `result.params['*']` for catch-all routes). This checks exact static matches first, then falls back to scanning `manifest.dynamic` patterns — the same matcher bini-router's own API route handler uses internally to dispatch requests in `src/app/api/`.
+
+For lower-level use — matching a single pattern against a single path without a full manifest — call `matchRoute()` directly:
+
+```ts
+import { matchRoute } from 'bini-router'
+
+matchRoute('/blog/:slug', '/blog/hello-world')
+// { slug: 'hello-world' }
+
+matchRoute('/docs/*', '/docs/guide/setup')
+// { '*': 'guide/setup' }
+
+matchRoute('/about', '/contact')
+// null — no match
+```
+
+This is the exact function used to route incoming requests to the correct API handler, so results are always consistent with how bini-router's own dev/preview server behaves.
+
+**Typical use case:** dev tools that need to answer "is the page the user is currently viewing static or dynamic?" — for example, a dev overlay reading `window.location.pathname` and reporting route type without re-implementing bini-router's segment/param/catch-all matching itself.
+
+---
+
+## Exports
+
+| Export | Type | Purpose |
+|---|---|---|
+| `biniroute(options?)` | function | Main Vite plugin array (routing + MDX) |
+| `generateRouteManifest(appDir, basePath?)` | function | Scan the filesystem and return the route manifest |
+| `matchRoute(pattern, pathname)` | function | Match a single route pattern against a concrete pathname, returning extracted params or `null` |
+| `matchManifestRoute(manifest, pathname)` | function | Resolve a concrete pathname against a full manifest — returns `{ type, routePath?, params? }` |
+| `RouteManifest` | type | Shape returned by `generateRouteManifest()` |
+| `RouteMatchResult` | type | Shape returned by `matchManifestRoute()` |
+| `BiniPluginOptions` | type | Options accepted by `biniroute()` |
+| `IconEntry` / `MetaTags` | type | Shapes used by the `metadata` export in layouts |
 
 ---
 
