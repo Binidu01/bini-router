@@ -33,6 +33,7 @@ Like Next.js App Router — but pure SPA, zero server required.
 - 🔄 **HMR** — file watcher with smart debounce (60ms), event deduplication, and live new-folder detection
 - 🔒 **Security** — route segment validation, param name validation, path traversal guards, 10MB source file size limits, and a configurable API request body size limit (1MB default)
 - 🧩 **Programmatic route manifest & matching** — `generateRouteManifest()`, `matchRoute()`, and `matchManifestRoute()` are all exported for other build tools (SSG generators, dev overlays, sitemap builders, etc.) to reuse bini-router's own route-scanning and matching logic directly, without going through Vite's virtual module system or re-implementing pattern matching themselves
+- 🧭 **Deployment-base aware** — respects Vite's own `base` config automatically: the router's `basename`, injected CSS `<link>`, and every root-relative metadata URL (icons, manifest, canonical, `og:image`, `twitter:image`) are all prefixed correctly when the app is served from a sub-path
 - 📦 **Zero config** — works out of the box
 - 💛 **JavaScript & TypeScript** — full support for both, auto-detected from your project
 
@@ -458,6 +459,8 @@ All fields are optional. Only the root `layout.tsx` metadata is used for `index.
 
 > For `authors`, only the first entry's `name` is read into the `<meta name="author">` tag — extra keys (like a per-author `url`) and additional array entries aren't rendered. For `openGraph.images` / `twitter.images`, only the first entry's `url` is used — `width`/`height` and other keys are accepted but not emitted into HTML.
 
+> **Root-relative asset URLs are automatically prefixed with Vite's `base`** when your app is deployed under a sub-path (see [Base Path](#base-path) below). This applies to `manifest`, all three `icons` groups, `canonical`, `openGraph.images`, and `twitter.images`. `openGraph.url` is left untouched, since it's expected to be an absolute canonical page URL rather than a local asset path.
+
 ---
 
 ## API Routes
@@ -558,21 +561,39 @@ Allowed methods checked against incoming requests regardless of CORS config: `GE
 
 ## Base Path
 
-Use `basePath` when your app is deployed under a subpath (e.g. `/app`, `/v2`). bini-router prepends it to every page route and the `BrowserRouter` basename automatically.
+Deploying under a sub-path (e.g. `https://example.com/my-app/`) is handled entirely through **Vite's own `base` config** — bini-router does not have a separate `basePath` option for prefixing the route tree; it reads Vite's resolved `base` (captured via the `configResolved` hook — the resolved value after CLI flags/config/env are all merged, so `vite build --base=/x/` is picked up correctly too) and derives everything below from it automatically.
 
 ```ts
 // vite.config.ts
-biniroute({ basePath: '/app' })
+export default defineConfig({
+  base: '/my-app/',   // ← the only thing sub-path deployments need
+  plugins: [react(), biniEnv(), ...biniroute()],
+})
 ```
 
-With `basePath: '/app'`:
+| What | How it's prefixed |
+|---|---|
+| `BrowserRouter` `basename` | Exported from the generated `App.tsx` as `basename`, set to Vite's resolved `base` |
+| Injected CSS `<link>` in `index.html` | Prefixed with `base` at build time |
+| `manifest`, `icon`/`shortcut`/`apple` icons, `canonical`, `og:image`, `twitter:image` | Root-relative URLs (starting with `/`) are prefixed with `base`; absolute URLs, protocol-relative URLs, `data:` URIs, and author-relative paths are left untouched |
+| Vite's own injected `<script type="module">` bundle tag | Handled by Vite core, not bini-router — already respects `base` |
 
-- `src/app/page.tsx` → `/app`
-- `src/app/dashboard/page.tsx` → `/app/dashboard`
-- `BrowserRouter basename` is set to `"/app"` at build time
+> Dev and preview always serve API routes at `/api/*` — the middleware is mounted directly at `/api`, independent of `base`.
+> If `base` is left at Vite's default (`/`), `basename` is `"/"` and no prefixing happens anywhere.
+> There's no option to prefix the internal route tree independently of `base` — the route tree is always scanned relative to `appDir`, and `base` only reaches it through `basename`.
 
-> Dev and preview always serve API routes at `/api/*` regardless of `basePath` — the middleware is mounted directly at `/api`.
-> Without `basePath` set, `basename` falls back to Vite's `import.meta.env.BASE_URL` if it's set, or `"/"` otherwise.
+### Server-side rendering (`StaticRouter`) and pre-rendering scripts
+
+If you use `basename` with `StaticRouter` in a custom SSG/pre-render script, remember that — like `BrowserRouter` — it expects the `location` you pass in to already include the basename, not just the bare route path:
+
+```ts
+import { AppRoutes, basename } from './App'
+
+// location must be "/my-app/about", not just "/about", when base is "/my-app/"
+const fullUrl = url.startsWith(basename) ? url : `${basename.replace(/\/$/, '')}${url}`
+```
+
+Passing a bare route path (e.g. `/about`) while `basename` is a non-root value will cause `StaticRouter` to render nothing for that page, with a console warning along the lines of *"is not able to match the URL because it does not start with the basename"*.
 
 ---
 
@@ -587,8 +608,6 @@ biniroute({
                                   //   ({ origin?, methods?, headers? }) to scope it.
                                   //   Default: false
   strictMode   : true,           // Throw on route conflicts. Default: true
-  basePath     : '',             // Subpath prefix for all routes. Default: ''
-                                  //   e.g. '/app' → all routes prefixed with /app
   bodySizeLimit: 1024 * 1024,    // Max request body size (bytes) for dev/preview
                                   //   API routes. Default: 1MB
   mdx          : {},             // Passed through to the bundled @mdx-js/rollup
@@ -597,6 +616,8 @@ biniroute({
                                   //   without this.
 })
 ```
+
+> There is no `basePath` option — sub-path deployments are driven entirely by Vite's own `base` config (see [Base Path](#base-path) above).
 
 ---
 
@@ -658,7 +679,7 @@ For anything that needs route data from **outside** Vite's transform pipeline �
 ```ts
 import { generateRouteManifest } from 'bini-router'
 
-const manifest = generateRouteManifest('src/app' /* appDir */, '' /* basePath, optional */)
+const manifest = generateRouteManifest('src/app' /* appDir */)
 
 console.log(manifest.static)    // ['/', '/about', ...]
 console.log(manifest.dynamic)   // ['/blog/:slug', ...]
@@ -666,7 +687,7 @@ console.log(manifest.all)       // static + dynamic combined
 console.log(manifest.metadata)  // per-route title/layouts/filePath/dynamic
 ```
 
-This is a plain synchronous function with no Vite dependency at call time — it reads the filesystem directly using the same scanning, extension-priority, and deduplication logic that powers the router itself, so results are always consistent with what actually gets rendered. Wrap the import in a `try/catch` if bini-router might not be installed, or might be an older version that predates this export.
+This is a plain synchronous function with no Vite dependency at call time — it reads the filesystem directly using the same scanning, extension-priority, and deduplication logic that powers the router itself, so results are always consistent with what actually gets rendered. It takes a single `appDir` argument (no `base`/`basePath` parameter) — the returned route paths are the raw scanned paths, not prefixed by Vite's `base`. Wrap the import in a `try/catch` if bini-router might not be installed, or might be an older version that predates this export.
 
 ### Matching a concrete URL against the manifest — `matchRoute()` / `matchManifestRoute()`
 
@@ -710,13 +731,14 @@ This is the exact function used to route incoming requests to the correct API ha
 | Export | Type | Purpose |
 |---|---|---|
 | `biniroute(options?)` | function | Main Vite plugin array (routing + MDX) |
-| `generateRouteManifest(appDir, basePath?)` | function | Scan the filesystem and return the route manifest |
+| `generateRouteManifest(appDir)` | function | Scan the filesystem and return the route manifest |
 | `matchRoute(pattern, pathname)` | function | Match a single route pattern against a concrete pathname, returning extracted params or `null` |
 | `matchManifestRoute(manifest, pathname)` | function | Resolve a concrete pathname against a full manifest — returns `{ type, routePath?, params? }` |
 | `RouteManifest` | type | Shape returned by `generateRouteManifest()` |
 | `RouteMatchResult` | type | Shape returned by `matchManifestRoute()` |
 | `BiniPluginOptions` | type | Options accepted by `biniroute()` |
 | `IconEntry` / `MetaTags` | type | Shapes used by the `metadata` export in layouts |
+| `Plugin` / `ViteDevServer` | type | Re-exported from `vite` for convenience |
 
 ---
 

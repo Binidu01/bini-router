@@ -102,7 +102,6 @@ export interface BiniPluginOptions {
   apiDir?: string;
   cors?: boolean | { origin?: string; methods?: string[]; headers?: string[] };
   strictMode?: boolean;
-  basePath?: string;
   bodySizeLimit?: number;
   mdx?: Parameters<typeof mdx>[0];
 }
@@ -312,6 +311,22 @@ function isInDir(file: string, dir: string): boolean {
   const nFile = norm(file);
   const nDir = norm(dir).replace(/\/$/, '');
   return nFile.startsWith(nDir + '/') || nFile === nDir;
+}
+
+/**
+ * Prefixes a root-relative URL (e.g. "/favicon.ico") with Vite's resolved
+ * `base` (e.g. "/testing-static-servers/") so generated <link>/<meta> tags
+ * resolve correctly when the app is served from a sub-path.
+ *
+ * Leaves absolute URLs (http://, https://, protocol-relative //, data:) and
+ * already-relative paths (no leading slash) untouched.
+ */
+function withBase(url: string, base: string): string {
+  if (!url) return url;
+  if (/^([a-z][a-z0-9+.-]*:)?\/\//i.test(url) || url.startsWith('data:')) return url;
+  if (!url.startsWith('/')) return url;
+  const b = base.endsWith('/') ? base.slice(0, -1) : base;
+  return `${b}${url}`;
 }
 
 function readTsconfigAliases(): Record<string, string> {
@@ -561,7 +576,6 @@ function collectNotFoundBoundaries(
   dir: string,
   appDir: string,
   baseRoute = '',
-  basePath: string = '',
   depth = 0,
   out: NotFoundBoundary[] = [],
 ): NotFoundBoundary[] {
@@ -573,7 +587,7 @@ function collectNotFoundBoundaries(
     const fullPath = path.join(dir, nfFile);
     if (hasDefaultExport(fullPath)) {
       out.push({
-        dirRoutePath: normalizeRoutePath(baseRoute || '/', basePath),
+        dirRoutePath: normalizeRoutePath(baseRoute || '/'),
         filePath: fullPath,
         layouts: resolveLayoutChain(dir, appDir).filter(l => isUsableLayout(l)),
       });
@@ -607,7 +621,7 @@ function collectNotFoundBoundaries(
       segment = entry.name;
     }
 
-    collectNotFoundBoundaries(fullPath, appDir, `${baseRoute}/${segment}`, basePath, depth + 1, out);
+    collectNotFoundBoundaries(fullPath, appDir, `${baseRoute}/${segment}`, depth + 1, out);
   }
 
   return out;
@@ -626,21 +640,15 @@ function isValidParamName(name: string): boolean {
   return ALLOWED_PARAM_PATTERN.test(name);
 }
 
-function normalizeRoutePath(routePath: string, basePath: string = ''): string {
+function normalizeRoutePath(routePath: string): string {
   let normalized = routePath.replace(/\/+/g, '/');
-  if (normalized === '') return basePath || '/';
+  if (normalized === '') return '/';
   if (!normalized.startsWith('/')) normalized = '/' + normalized;
   if (normalized.endsWith('/') && normalized !== '/') normalized = normalized.slice(0, -1);
-  
-  if (basePath && basePath !== '/') {
-    const cleanBasePath = basePath.replace(/\/$/, '');
-    normalized = cleanBasePath + normalized;
-  }
-  
   return normalized;
 }
 
-function scanRoutes(dir: string, appDir: string, baseRoute = '', basePath: string = '', depth = 0): RouteNode[] {
+function scanRoutes(dir: string, appDir: string, baseRoute = '', depth = 0): RouteNode[] {
   if (depth > MAX_DEPTH) {
     viteWarnLog(`Maximum directory depth reached at ${dir}`);
     return [];
@@ -677,7 +685,7 @@ function scanRoutes(dir: string, appDir: string, baseRoute = '', basePath: strin
     }
     
     const rawPath = `${baseRoute}/${base}`;
-    const routePath = normalizeRoutePath(rawPath, basePath);
+    const routePath = normalizeRoutePath(rawPath);
     
     routes.push({
       routePath,
@@ -714,7 +722,7 @@ function scanRoutes(dir: string, appDir: string, baseRoute = '', basePath: strin
     }
     
     const rawPath = `${baseRoute}/${segment}`;
-    const routePath = normalizeRoutePath(rawPath, basePath);
+    const routePath = normalizeRoutePath(rawPath);
     const pageFile = findFile(fullPath, PAGE_FILES);
     
     if (pageFile) {
@@ -727,7 +735,7 @@ function scanRoutes(dir: string, appDir: string, baseRoute = '', basePath: strin
       });
     }
     
-    routes.push(...scanRoutes(fullPath, appDir, rawPath, basePath, depth + 1));
+    routes.push(...scanRoutes(fullPath, appDir, rawPath, depth + 1));
   }
 
   return routes;
@@ -998,12 +1006,12 @@ export interface RouteMatchResult {
   params?: Record<string, string>;
 }
 
-export function generateRouteManifest(appDir: string, basePath: string = ''): RouteManifest {
-  let routes = scanRoutes(appDir, appDir, '', basePath);
+export function generateRouteManifest(appDir: string): RouteManifest {
+  let routes = scanRoutes(appDir, appDir, '');
   
   const rootPage = findFile(appDir, PAGE_FILES);
   if (rootPage) {
-    const rootRoutePath = normalizeRoutePath('/', basePath);
+    const rootRoutePath = normalizeRoutePath('/');
     routes.unshift({
       routePath: rootRoutePath,
       filePath: path.join(appDir, rootPage),
@@ -1107,8 +1115,8 @@ export function matchManifestRoute(
   return { type: 'not_found' };
 }
 
-function getRouteManifestModule(appDir: string, basePath: string): string {
-  const manifest = generateRouteManifest(appDir, basePath);
+function getRouteManifestModule(appDir: string): string {
+  const manifest = generateRouteManifest(appDir);
   return `
     export const staticRoutes = ${JSON.stringify(manifest.static)};
     export const dynamicRoutes = ${JSON.stringify(manifest.dynamic)};
@@ -1125,14 +1133,14 @@ function getRouteManifestModule(appDir: string, basePath: string): string {
 
 // ─── Generate App ────────────────────────────────────────────────────────────
 
-function generateApp(appDir: string, basePath: string = '', strictMode = false): string {
+function generateApp(appDir: string, strictMode = false, basename: string = '/'): string {
   const aliases = readTsconfigAliases();
-  let routes = scanRoutes(appDir, appDir, '', basePath);
+  let routes = scanRoutes(appDir, appDir, '');
   const ts = isTypeScriptProject();
 
   const rootPage = findFile(appDir, PAGE_FILES);
   if (rootPage) {
-    const rootRoutePath = normalizeRoutePath('/', basePath);
+    const rootRoutePath = normalizeRoutePath('/');
     routes.unshift({
       routePath: rootRoutePath,
       filePath: path.join(appDir, rootPage),
@@ -1254,8 +1262,8 @@ function generateApp(appDir: string, basePath: string = '', strictMode = false):
     routeLines.push(renderChain(layouts, cr, layoutNames, pageNames, layoutTitles, layoutLoadingNames, pageLoadingNames, layoutErrorNames, pageErrorNames, 8));
   }
 
-  const notFoundBoundaries = collectNotFoundBoundaries(appDir, appDir, '', basePath);
-  const rootEffectivePath = basePath || '/';
+  const notFoundBoundaries = collectNotFoundBoundaries(appDir, appDir, '');
+  const rootEffectivePath = '/';
 
   const notFoundNames = new Map<string, string>();
   let nfi = 0;
@@ -1303,7 +1311,7 @@ function generateApp(appDir: string, basePath: string = '', strictMode = false):
   const titleSetterFn = generateTitleSetter(ts);
   const spinnerFn = usesDefaultSpinner ? DEFAULT_LOADING_COMPONENT : '';
 
-  const basenameValue = basePath || (import.meta as any).env?.BASE_URL || '/';
+  const basenameValue = basename || '/';
 
   return `// @ts-nocheck
 // oxlint-disable
@@ -1517,7 +1525,7 @@ function extractIconArray(str: string, type: string): IconEntry[] {
 
 // ─── API Route Scanner ───────────────────────────────────────────────────────
 
-function scanApiRoutes(dir: string, baseRoute = '', basePath: string = '', depth = 0): ApiRoute[] {
+function scanApiRoutes(dir: string, baseRoute = '', depth = 0): ApiRoute[] {
   if (depth > MAX_DEPTH) {
     viteWarnLog(`Maximum API directory depth reached at ${dir}`);
     return [];
@@ -1560,7 +1568,7 @@ function scanApiRoutes(dir: string, baseRoute = '', basePath: string = '', depth
         segment = entry.name;
       }
       
-      routes.push(...scanApiRoutes(fullPath, `${baseRoute}/${segment}`, basePath, depth + 1));
+      routes.push(...scanApiRoutes(fullPath, `${baseRoute}/${segment}`, depth + 1));
       continue;
     }
 
@@ -1591,7 +1599,7 @@ function scanApiRoutes(dir: string, baseRoute = '', basePath: string = '', depth
       rawRoutePath = `${baseRoute}/${base}`;
     }
 
-    const routePath = normalizeRoutePath(rawRoutePath, basePath);
+    const routePath = normalizeRoutePath(rawRoutePath);
     routes.push({ routePath, filePath: fullPath });
   }
 
@@ -1901,7 +1909,6 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
   const { 
     cors: corsConfig = false,
     strictMode = true,
-    basePath = '',
     bodySizeLimit = DEFAULT_BODY_SIZE_LIMIT
   } = options;
 
@@ -1914,8 +1921,9 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
   const eventLog = new Map<string, number>();
   let isGenerating = false;
 
-  // ─── Build mode detection ──────────────────────────────────────────────
+  // ─── Build mode / base-path detection ───────────────────────────────────
   let isBuild = false;
+  let viteBase = '/';
 
   function shouldProcess(file: string, event: string): boolean {
     const key = `${file}:${event}`;
@@ -1956,10 +1964,25 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
       const dir = getAppDir();
       if (!fs.existsSync(dir)) return null;
       
-      const code = generateApp(dir, basePath, strictMode);
+      const code = generateApp(dir, strictMode, viteBase);
       if (code === lastGeneratedCode) return null;
       
       const appFile = getAppFile();
+      
+      // Read existing file content first to avoid unnecessary writes
+      let existingCode = '';
+      try {
+        existingCode = fs.readFileSync(appFile, 'utf8');
+      } catch {
+        // File doesn't exist yet, that's fine
+      }
+      
+      // Only write if the content actually changed
+      if (existingCode === code) {
+        lastGeneratedCode = code;
+        return null;
+      }
+      
       fs.mkdirSync(path.dirname(appFile), { recursive: true });
       fs.writeFileSync(appFile, code, 'utf8');
       lastGeneratedCode = code;
@@ -2006,7 +2029,18 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
     // ─── CONFIG: Detect build mode ──────────────────────────────────────────
     config(_, env) {
       isBuild = env.command === 'build';
-      applyApp();
+    },
+
+    // ─── CONFIG RESOLVED: Capture Vite's final `base` ───────────────────────
+    configResolved(config) {
+      const newBase = config.base || '/';
+      const baseChanged = viteBase !== newBase;
+      viteBase = newBase;
+      
+      // Regenerate app if base changed or first time
+      if (baseChanged || !lastGeneratedCode) {
+        applyApp();
+      }
     },
 
     transform: {
@@ -2037,7 +2071,9 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
     },
 
     buildStart(): void {
-      applyApp();
+      if (!lastGeneratedCode) {
+        applyApp();
+      }
     },
 
     buildEnd(): void {
@@ -2054,6 +2090,11 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
       const apiDir = getApiDir();
 
       if (!fs.existsSync(appDir)) return;
+
+      // Ensure app is generated with correct base before server starts
+      if (!lastGeneratedCode) {
+        applyApp();
+      }
 
       server.watcher.add(appDir);
 
@@ -2166,8 +2207,9 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
       order: 'post',
       handler(html, ctx) {
         try {
-          // ─── INJECT CSS LINK FOR PRODUCTION BUILDS ────────────────────
-          // ctx.bundle contains all bundled files, including CSS
+          // Always use the resolved base
+          const base = viteBase || '/';
+          
           if (isBuild && ctx.bundle) {
             const cssFiles: string[] = [];
             for (const [fileName] of Object.entries(ctx.bundle)) {
@@ -2177,8 +2219,9 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
             }
             
             if (cssFiles.length > 0) {
+              const baseHref = base.endsWith('/') ? base : `${base}/`;
               const cssLinks = cssFiles.map(f => 
-                `<link rel="stylesheet" href="/${f}">`
+                `<link rel="stylesheet" href="${baseHref}${f}">`
               ).join('\n    ');
               
               if (!html.includes('rel="stylesheet"')) {
@@ -2186,7 +2229,6 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
               }
             }
           }
-          // ─── END CSS INJECTION ────────────────────────────────────────
 
           const meta = parseAppMetadata(getAppDir());
 
@@ -2209,23 +2251,25 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
           if (meta.robots) lines.push(`<meta name="robots" content="${escapeHtml(meta.robots)}">`);
           if (meta.keywords) lines.push(`<meta name="keywords" content="${escapeHtml(meta.keywords)}">`);
           if (meta.author) lines.push(`<meta name="author" content="${escapeHtml(meta.author)}">`);
-          if (meta.canonical) lines.push(`<link rel="canonical" href="${escapeHtml(meta.canonical)}">`);
-          if (meta.manifest) lines.push(`<link rel="manifest" href="${escapeHtml(meta.manifest)}">`);
+          
+          // Prefix all asset paths with the base
+          if (meta.canonical) lines.push(`<link rel="canonical" href="${escapeHtml(withBase(meta.canonical, base))}">`);
+          if (meta.manifest) lines.push(`<link rel="manifest" href="${escapeHtml(withBase(meta.manifest, base))}">`);
 
           for (const entry of meta.icons?.icon ?? []) {
             const type = entry.type ? ` type="${escapeHtml(entry.type)}"` : '';
             const sizes = entry.sizes ? ` sizes="${escapeHtml(entry.sizes)}"` : '';
-            lines.push(`<link rel="icon" href="${escapeHtml(entry.url)}"${type}${sizes}>`);
+            lines.push(`<link rel="icon" href="${escapeHtml(withBase(entry.url, base))}"${type}${sizes}>`);
           }
           
           for (const entry of meta.icons?.shortcut ?? []) {
-            lines.push(`<link rel="shortcut icon" href="${escapeHtml(entry.url)}">`);
+            lines.push(`<link rel="shortcut icon" href="${escapeHtml(withBase(entry.url, base))}">`);
           }
           
           for (const entry of meta.icons?.apple ?? []) {
             const sizes = entry.sizes ? ` sizes="${escapeHtml(entry.sizes)}"` : '';
             const type = entry.type ? ` type="${escapeHtml(entry.type)}"` : '';
-            lines.push(`<link rel="apple-touch-icon" href="${escapeHtml(entry.url)}"${sizes}${type}>`);
+            lines.push(`<link rel="apple-touch-icon" href="${escapeHtml(withBase(entry.url, base))}"${sizes}${type}>`);
           }
 
           if (meta.openGraph?.title) {
@@ -2235,7 +2279,7 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
               lines.push(`<meta property="og:description" content="${escapeHtml(meta.openGraph.description)}">`);
             }
             if (meta.openGraph.url) lines.push(`<meta property="og:url" content="${escapeHtml(meta.openGraph.url)}">`);
-            if (meta.openGraph.image) lines.push(`<meta property="og:image" content="${escapeHtml(meta.openGraph.image)}">`);
+            if (meta.openGraph.image) lines.push(`<meta property="og:image" content="${escapeHtml(withBase(meta.openGraph.image, base))}">`);
           }
 
           if (meta.twitter?.title) {
@@ -2245,7 +2289,7 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
               lines.push(`<meta name="twitter:description" content="${escapeHtml(meta.twitter.description)}">`);
             }
             if (meta.twitter.creator) lines.push(`<meta name="twitter:creator" content="${escapeHtml(meta.twitter.creator)}">`);
-            if (meta.twitter.image) lines.push(`<meta name="twitter:image" content="${escapeHtml(meta.twitter.image)}">`);
+            if (meta.twitter.image) lines.push(`<meta name="twitter:image" content="${escapeHtml(withBase(meta.twitter.image, base))}">`);
           }
 
           const injected = lines.map(l => `    ${l}`).join('\n');
@@ -2267,7 +2311,7 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
     load(id) {
       if (id === '\0virtual:bini-routes') {
         const appDir = getAppDir();
-        return getRouteManifestModule(appDir, basePath);
+        return getRouteManifestModule(appDir);
       }
       return null;
     },
