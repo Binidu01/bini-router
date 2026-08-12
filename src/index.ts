@@ -788,19 +788,80 @@ function deduplicateRoutes(routes: RouteNode[]): RouteNode[] {
   return Array.from(seen.values());
 }
 
+// ─── Metadata object extraction (brace-depth, string-aware) ────────────────
+//
+// Previously this used a regex like:
+//   /export\s+const\s+metadata\s*=\s*({[\s\S]*?})(?=\n\s*export|\n\s*$)/
+// which required the closing `}` of the metadata object to be *immediately*
+// followed by a newline + "export" (or end of file). Real-world code like:
+//
+//   export const metadata = { ... };
+//
+//   export default function RootLayout() { ... }
+//
+// closes with `};` — the `;` sits between the `}` and the newline, so the
+// lookahead never matched and the whole regex silently failed, making
+// parseAppMetadata()/parseLayoutTitle() return nothing. Walking the source
+// with real brace-depth counting (and skipping over string/template literal
+// contents, so a `{` or `}` inside a quoted string doesn't throw off the
+// count) is immune to trailing semicolons, comments, or spacing.
+
+function extractMetadataObjectSource(src: string): string | null {
+  const declMatch = src.match(/export\s+const\s+metadata\s*=\s*/);
+  if (!declMatch || declMatch.index === undefined) return null;
+
+  const searchFrom = declMatch.index + declMatch[0].length;
+  const braceStart = src.indexOf('{', searchFrom);
+  if (braceStart === -1) return null;
+
+  let depth = 0;
+  let inString: string | null = null;
+  let escaped = false;
+
+  for (let i = braceStart; i < src.length; i++) {
+    const ch = src[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === inString) {
+        inString = null;
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === "'" || ch === '`') {
+      inString = ch;
+      continue;
+    }
+
+    if (ch === '{') {
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        return src.slice(braceStart, i + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
 function parseLayoutTitle(layoutFile: string): string | null {
   try {
     const stats = fs.statSync(layoutFile);
     if (stats.size > MAX_FILE_SIZE) return null;
     
     const src = fs.readFileSync(layoutFile, 'utf8');
-    const metadataRegex = /export\s+const\s+metadata\s*=\s*({[\s\S]*?})(?=\n\s*export|\n\s*$)/;
-    const match = src.match(metadataRegex);
-    if (!match) return null;
+    const metadataStr = extractMetadataObjectSource(src);
+    if (!metadataStr) return null;
     
     try {
       const titleRegex = /['"]?title['"]?\s*:\s*['"`]([^'"`]+)['"`]/;
-      const titleMatch = match[1].match(titleRegex);
+      const titleMatch = metadataStr.match(titleRegex);
       return titleMatch ? titleMatch[1] : null;
     } catch {
       return null;
@@ -1365,11 +1426,9 @@ function parseAppMetadata(appDir: string): MetaTags {
     if (stats.size > MAX_FILE_SIZE) return {};
     
     const src = fs.readFileSync(layoutPath, 'utf8');
-    const metadataRegex = /export\s+const\s+metadata\s*=\s*({[\s\S]*?})(?=\n\s*export|\n\s*$)/;
-    const match = src.match(metadataRegex);
-    if (!match) return {};
+    const metadataStr = extractMetadataObjectSource(src);
+    if (!metadataStr) return {};
     
-    const metadataStr = match[1];
     return parseMetadataString(metadataStr);
   } catch (error) {
     viteErrorLog(`Failed to parse metadata: ${error instanceof Error ? error.message : String(error)}`);
