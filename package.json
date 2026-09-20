@@ -1,6 +1,6 @@
 {
   "name": "bini-router",
-  "version": "2.0.5",
+  "version": "2.1.0",
   "description": "File-based routing, nested layouts, auto-imports, and Hono-powered API routes for Vite + React with MDX support",
   "author": "bini.js",
   "license": "MIT",
@@ -18,34 +18,37 @@
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
       }
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "prepublishOnly": "npm run build",
-    "lint": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "prepublishOnly": "npm run clean && npm run build",
+    "typecheck": "tsc --noEmit",
+    "lint": "npm run typecheck",
+    "clean": "rm -rf dist",
+    "test": "node --test"
   },
   "dependencies": {
     "@mdx-js/rollup": "^3.1.0",
-    "bini-env": "1.1.2"
+    "bini-env": "1.1.2",
+    "oxc-parser": "^0.150.0"
   },
   "peerDependencies": {
     "hono": ">=4.0.0",
-    "vite": ">=8.0.0",
     "react": ">=18.0.0",
     "react-dom": ">=18.0.0",
-    "react-router-dom": ">=6.0.0"
+    "react-router-dom": ">=6.0.0",
+    "vite": ">=8.0.0"
   },
   "peerDependenciesMeta": {
     "hono": {
-      "optional": false
-    },
-    "vite": {
       "optional": false
     },
     "react": {
@@ -55,6 +58,9 @@
       "optional": false
     },
     "react-router-dom": {
+      "optional": false
+    },
+    "vite": {
       "optional": false
     }
   },
@@ -90,7 +96,8 @@
     "loading-screen",
     "metadata",
     "mdx",
-    "markdown"
+    "markdown",
+    "oxc"
   ],
   "repository": {
     "type": "git",

@@ -1,7 +1,5 @@
 # bini-router
 
-<div align="center">
-
 [![npm version](https://img.shields.io/npm/v/bini-router?color=00CFFF&labelColor=0a0a0a&style=flat-square)](https://www.npmjs.com/package/bini-router)
 [![license](https://img.shields.io/badge/license-MIT-00CFFF?labelColor=0a0a0a&style=flat-square)](./LICENSE)
 [![vite](https://img.shields.io/badge/vite-8%2B-646cff?labelColor=0a0a0a&style=flat-square)](https://vitejs.dev)
@@ -10,34 +8,66 @@
 [![typescript](https://img.shields.io/badge/typescript-ready-3178c6?labelColor=0a0a0a&style=flat-square)](https://www.typescriptlang.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-00CFFF?labelColor=0a0a0a&style=flat-square)](https://github.com/binidu/bini-router/pulls)
 
-**File-based routing, nested layouts, folder-scoped loading/error/404 boundaries, MDX pages, and Web-standard `Request → Response` API routes for Vite.**
-Like Next.js App Router — but pure SPA, zero server required.
+**File-based routing, nested layouts, templates, route groups, folder-scoped loading/error/404 boundaries, MDX pages, and Web-standard `Request -> Response` API routes for Vite.**
 
-</div>
+Similar to the Next.js App Router, but a pure SPA with no server required.
+
+---
+
+## Table of Contents
+
+- [Features](#features)
+- [Install](#install)
+- [Setup](#setup)
+- [File Structure](#file-structure)
+- [Routing](#routing)
+- [Layouts](#layouts)
+- [Templates](#templates)
+- [Loading, Not Found, and Error Boundaries](#loading-not-found-and-error-boundaries)
+- [MDX and Markdown](#mdx-and-markdown)
+- [Metadata](#metadata)
+- [Document Export](#document-export)
+- [Auto-imports](#auto-imports)
+- [Environment Variables](#environment-variables)
+- [API Routes](#api-routes)
+- [Base Path](#base-path)
+- [Configuration Reference](#configuration-reference)
+- [Route Manifest](#route-manifest)
+- [HMR and File Watcher](#hmr-and-file-watcher)
+- [Programmatic API](#programmatic-api)
+- [Exports](#exports)
+- [Route Naming Rules](#route-naming-rules)
+- [Differences from Next.js](#differences-from-nextjs)
+- [Troubleshooting](#troubleshooting)
+- [Deployment](#deployment)
+- [License](#license)
 
 ---
 
 ## Features
 
-- 🗂️ **File-based routing** — `page.tsx` / `page.jsx` files map directly to URLs, flat files (`about.tsx` → `/about`) work the same way
-- 📄 **MDX & Markdown pages** — `.mdx` and `.md` content routes work out of the box (`page.mdx`, `about.md`, etc.) — `@mdx-js/rollup` is bundled internally, no separate install or Vite config needed
-- 🪆 **Nested layouts** — layouts wrap their segment and all children automatically
-- 🎯 **Folder-scoped boundaries** — `loading.tsx`, `not-found.tsx`, and `error.tsx` all use "nearest wins" resolution: a file in a subfolder only affects that subfolder, shadowing (but not deleting) the same file in any ancestor folder — same mental model as layouts
-- 🏷️ **Per-route metadata** — `export const metadata` in any layout sets `document.title` at runtime; root layout metadata is injected into `index.html` at build time
-- 🔀 **Dynamic segments** — `[id]/page.tsx` → `/:id`, `[...slug]` → catch-all
-- 🌐 **API routes** — plain `Request → Response` handlers in `src/app/api/`, served in dev/preview. Export a Hono app (or anything with a `.fetch(request)` method) and it's handled automatically, or export a plain function — no framework required either way
-- ✨ **Auto-imports** — `useState`, `useEffect`, `Link`, `useNavigate`, `getEnv` and more available in every page (including `.mdx`/`.md`) without importing
-- 🌿 **Auto env loading** — `.env` loaded automatically by Vite; `getEnv`/`requireEnv` auto-imported from [bini-env](https://www.npmjs.com/package/bini-env) wherever used
-- 🛡️ **Error boundaries with custom overrides** — every layout/page is crash-isolated by default, and a folder's own `error.tsx` can supply custom fallback UI with a `reset()` callback
-- ⏳ **Lazy loading** — every route, layout, loading file, and error file is code-split automatically via `React.lazy`
-- 🔄 **HMR** — file watcher with smart debounce (60ms), event deduplication, and live new-folder detection
-- 🔒 **Security** — route segment validation, param name validation, path traversal guards, 10MB source file size limits, and a configurable API request body size limit (1MB default)
-- 🧩 **Programmatic route manifest & matching** — `generateRouteManifest()`, `matchRoute()`, and `matchManifestRoute()` are all exported for other build tools (SSG generators, dev overlays, sitemap builders, etc.) to reuse bini-router's own route-scanning and matching logic directly, without going through Vite's virtual module system or re-implementing pattern matching themselves
-- 🧭 **Deployment-base aware** — respects Vite's own `base` config automatically: the router's `basename`, injected CSS `<link>`, and every root-relative metadata URL (icons, manifest, canonical, `og:image`, `twitter:image`) are all prefixed correctly when the app is served from a sub-path
-- 📦 **Zero config** — works out of the box
-- 💛 **JavaScript & TypeScript** — full support for both, auto-detected from your project
+- **File-based routing.** `page.tsx` files inside folders and flat files such as `about.tsx` both map directly to URLs. `index.*` files map to their parent route.
+- **Dynamic, catch-all, and optional catch-all segments.** `[id]`, `[...slug]`, and `[[...slug]]` are supported for both folders and flat files.
+- **Route groups.** Folders wrapped in parentheses, such as `(marketing)`, organize files and share layouts without affecting the URL.
+- **Nested layouts.** Layouts wrap their segment and all children, and receive route `params` as a prop.
+- **Templates.** `template.tsx` files wrap individual pages inside the layout chain, using the same nearest-wins resolution as other special files.
+- **MDX and Markdown pages.** `.mdx` and `.md` content routes work out of the box. `@mdx-js/rollup` is bundled internally, so no separate install or Vite configuration is required.
+- **Folder-scoped boundaries.** `loading`, `not-found`, and `error` files use nearest-wins resolution. A file in a subfolder affects only that subfolder and shadows, without deleting, the same file in any ancestor.
+- **Per-route metadata.** `export const metadata` in layouts and pages sets `document.title` at runtime, with support for title templates. Root layout metadata is injected into `index.html`.
+- **Document export.** `export const document` in the root layout customizes attributes on `<html>` and `<body>` and appends markup to `<head>`.
+- **API routes.** Plain `Request -> Response` handlers in `src/app/api/`, served in dev and preview. Any object exposing a `.fetch(request)` method (such as a Hono app) is supported, as are plain functions.
+- **Auto-imports.** Common React, React Router, and environment helpers are available in `.tsx`, `.jsx`, `.ts`, and `.js` source files without explicit imports.
+- **Error isolation.** Every layout and page is wrapped in an error boundary that resets on navigation. A folder's own `error.tsx` can supply custom fallback UI.
+- **Code splitting.** Pages, loading files, error files, and not-found files are loaded through `React.lazy`.
+- **AST-based analysis.** Source files are parsed with the Oxc parser rather than regular expressions, so metadata, exports, and auto-import detection are accurate.
+- **Hot reloading.** A debounced file watcher regenerates routes as files and folders are added, changed, or removed.
+- **Security.** Route segment validation, parameter name validation, path traversal guards, source file size limits, and a configurable API request body size limit.
+- **Programmatic route manifest and matching.** `generateRouteManifest()`, `matchRoute()`, and `matchManifestRoute()` are exported for SSG generators, dev overlays, sitemap builders, and other tooling.
+- **Deployment-base aware.** The router `basename` and every root-relative metadata URL respect Vite's `base` configuration, with an optional `basename` override.
+- **Zero configuration.** Works out of the box.
+- **JavaScript and TypeScript.** Both are supported and auto-detected from your project.
 
-> Production deployment (Netlify/Vercel/Cloudflare/Node/Deno entry generation) is handled by the companion package **[bini-deploy](https://www.npmjs.com/package/bini-deploy)**, not by bini-router itself. This package focuses purely on routing, layouts, and local API serving.
+> Production deployment (Netlify, Vercel, Cloudflare, Node, and Deno entry generation) is handled by the companion package [bini-deploy](https://www.npmjs.com/package/bini-deploy). This package focuses on routing, layouts, and local API serving.
 
 ---
 
@@ -47,13 +77,21 @@ Like Next.js App Router — but pure SPA, zero server required.
 npm install bini-router bini-env
 ```
 
-> `bini-env` powers the `getEnv`/`requireEnv` auto-imports. MDX/Markdown support ships built in with no extra install — `@mdx-js/rollup` is bundled inside bini-router itself. Hono is **not** a dependency of bini-router — see [API Routes](#api-routes) below.
+`bini-env` powers the `getEnv` and `requireEnv` auto-imports. MDX and Markdown support ships built in. Hono is not a dependency of bini-router; see [API Routes](#api-routes).
+
+### Requirements
+
+| Dependency | Version |
+|---|---|
+| Vite | 8 or later |
+| React | 18 or later |
+| react-router-dom | Required in your project; the generated app imports `BrowserRouter`, `Routes`, `Route`, `Outlet`, `useLocation`, and `useParams` from it |
 
 ---
 
 ## Setup
 
-### `vite.config.ts` / `vite.config.js`
+### vite.config.ts
 
 ```ts
 import { defineConfig } from 'vite'
@@ -66,15 +104,15 @@ export default defineConfig({
 })
 ```
 
-> `biniroute()` returns an array of plugins (the router plugin plus the bundled MDX compiler) — spread it into `plugins` as shown above.
+`biniroute()` returns an array of plugins (the router plugin plus the bundled MDX compiler). Spread it into `plugins` as shown.
 
-### `index.html`
+### index.html
 
 ```html
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <!-- bini-router injects all meta tags here automatically -->
+    <!-- bini-router injects metadata here automatically -->
   </head>
   <body>
     <div id="root"></div>
@@ -83,95 +121,46 @@ export default defineConfig({
 </html>
 ```
 
-> You do **not** need to manually add `<title>`, `<meta>`, favicons, or Open Graph tags.
-> bini-router reads your root layout's `metadata` export and injects everything at build time.
+You do not need to add `<title>`, `<meta>`, favicon, or Open Graph tags manually. bini-router reads the root layout's `metadata` export and injects them.
 
----
+### main.tsx
 
-## Auto-imports
-
-bini-router automatically injects imports into every page and layout file under `src/app/` (excluding `src/app/api/`) — this applies to `.tsx`/`.jsx`/`.ts`/`.js` **and** `.mdx`/`.md` files. You never need to write import statements for these:
-
-**From `react`:**
-```ts
-useState  useEffect  useRef  useMemo  useCallback
-useContext  createContext  useReducer  useId  useTransition  useDeferredValue
-```
-
-**From `react-router-dom`:**
-```ts
-Link  NavLink  useNavigate  useParams  useLocation  useSearchParams  Outlet
-```
-
-**From `bini-env`:**
-```ts
-getEnv  requireEnv
-```
-
-So your pages look like this — no imports needed:
+Mount the generated `App` component as usual:
 
 ```tsx
-// src/app/profile/page.tsx
-export default function Profile() {
-  const { id } = useParams()
-  const navigate = useNavigate()
-  const [user, setUser] = useState(null)
+import { createRoot } from 'react-dom/client'
+import App from './App'
 
-  return (
-    <div>
-      <Link to="/">← Home</Link>
-      <h1>Profile {id}</h1>
-    </div>
-  )
-}
+createRoot(document.getElementById('root')!).render(<App />)
 ```
 
-> If you already import from one of these packages manually, bini-router detects it and skips injection — no duplicates ever.
+### Generated App file
 
-> Auto-imports are only injected into files inside `src/app/` that are not in `src/app/api/`, and not the auto-generated `App.tsx` / `App.jsx` file itself.
+bini-router generates `src/App.tsx` (or `src/App.jsx` in JavaScript projects) and keeps it in sync with your route tree. The file begins with an auto-generated header and should not be edited.
 
----
+If a file already exists at that path without the header, bini-router will not overwrite it. In development a warning is logged; during a build the process fails with an error. Delete or move the file to let bini-router manage it.
 
-## Environment Variables
+The generated module exports:
 
-bini-router pairs with [bini-env](https://www.npmjs.com/package/bini-env) to handle environment variables:
+| Export | Description |
+|---|---|
+| `default` | The `App` component, wrapping `AppRoutes` in a `BrowserRouter` |
+| `AppRoutes` | The route tree, for use with a custom router such as `StaticRouter` |
+| `basename` | The resolved router basename |
 
-- **Client code** — use `import.meta.env.BINI_*` (prefix set automatically by bini-env)
-- **API routes** — use `getEnv()` or `requireEnv()` — no dotenv import needed
-- **Dev server** — `.env` is loaded automatically by Vite itself when the server starts
-- **Production** — env vars are read from the host's environment (Netlify dashboard, Vercel settings, etc.)
+### TypeScript vs JavaScript
 
-```env
-# .env
-BINI_FIREBASE_API_KEY=your_key        # client-side — accessible via import.meta.env.BINI_*
-SMTP_USER=user@smtp.example.com       # server-side — accessible via getEnv() in API routes
-SMTP_PASS=your_password
-FROM_EMAIL=App <noreply@example.com>
-```
+Project type is detected in this order:
 
-```ts
-// src/app/api/email.ts — getEnv/requireEnv are auto-imported
-const SMTP_USER = requireEnv('SMTP_USER')  // throws if missing
-const DEBUG     = getEnv('DEBUG_MODE')     // returns undefined if missing
-```
-
----
-
-## JavaScript & TypeScript
-
-bini-router supports both JavaScript and TypeScript projects out of the box — no extra configuration needed.
-
-**Auto-detection order:**
-1. Checks for `src/main.tsx` or `src/main.ts` / `src/main.jsx` or `src/main.js`
-2. Falls back to checking for a `tsconfig.json` at the project root
-3. Falls back to scanning `src/app/` recursively (up to 5 levels deep) for any `.ts` / `.tsx` files
+1. The presence of `src/main.tsx`, `src/main.ts`, `src/main.jsx`, or `src/main.js`
+2. A `tsconfig.json` at the project root
+3. Any `.ts` or `.tsx` file inside `src/app/` (scanned up to 5 levels deep)
 
 | | TypeScript project | JavaScript project |
-| ------------------------ | ------------------ | ------------------ |
-| Auto-generated app entry | `src/App.tsx` | `src/App.jsx` |
-| `ErrorBoundary` | Full generic types | Plain JS class |
-| `TitleSetter` | Typed props | Plain JS function |
-| Your pages / layouts | `.tsx` (or `.mdx`/`.md` for pages) | `.jsx` (or `.mdx`/`.md` for pages) |
+|---|---|---|
+| Generated app entry | `src/App.tsx` | `src/App.jsx` |
+| Error boundary | Fully typed class | Plain JavaScript class |
+| Pages and layouts | `.tsx` (or `.mdx`/`.md` for pages) | `.jsx` (or `.mdx`/`.md` for pages) |
 | API routes | `.ts` | `.js` |
 
 ---
@@ -180,126 +169,280 @@ bini-router supports both JavaScript and TypeScript projects out of the box — 
 
 ```
 src/
-  main.tsx              ← mounts <App /> as usual
-  App.tsx               ← auto-generated by bini-router — do not edit
+  main.tsx                  Mounts <App />
+  App.tsx                   Auto-generated by bini-router. Do not edit.
   app/
-    layout.tsx           ← root layout + global metadata (tsx/jsx/ts/js only)
-    page.tsx             ← /
-    loading.tsx          ← default loading UI, applies wherever no closer one exists
-    not-found.tsx        ← default 404, applies wherever no closer one exists
-    error.tsx             ← default error fallback, applies wherever no closer one exists
-    about.mdx            ← /about — plain content route written in MDX
+    layout.tsx              Root layout, global metadata, document export
+    template.tsx            Optional template wrapping every page
+    page.tsx                /
+    loading.tsx             Default loading UI
+    not-found.tsx           Default 404
+    error.tsx               Default error fallback
+    about.mdx               /about, written in MDX
+
+    (marketing)/            Route group: no URL segment
+      layout.tsx            Layout shared by the group
+      pricing/
+        page.tsx            /pricing
 
     dashboard/
-      layout.tsx          ← nested layout for /dashboard/*
-      page.tsx            ← /dashboard
-      loading.tsx         ← ONLY affects /dashboard/* — nearest wins over the root one
+      layout.tsx            Nested layout for /dashboard/*
+      page.tsx              /dashboard
+      loading.tsx           Applies only to /dashboard/*
       [id]/
-        page.mdx          ← /dashboard/:id — a dynamic route written in MDX
+        page.mdx            /dashboard/:id, written in MDX
 
     blog/
-      [slug]/
-        page.tsx           ← /blog/:slug
+      index.tsx             /blog
+      [slug].tsx            /blog/:slug
+      not-found.tsx         Applies only to /blog/*
+
+    docs/
+      [...path]/
+        page.tsx            /docs/*
 
     api/
-      users.ts             ← /api/users
+      users.ts              /api/users
       posts/
-        index.ts           ← /api/posts
-        [id].ts            ← /api/posts/:id
-      [...catch].ts        ← /api/* catch-all
+        index.ts            /api/posts
+        [id].ts             /api/posts/:id
+      [...catch].ts         /api/* catch-all
 ```
 
-> Files and directories prefixed with `_` or `.` are ignored by the router.
-> The `api/` directory is excluded from page route scanning.
-> Directory traversal is capped at 100 levels deep.
-> `layout`, `not-found`, `loading`, and `error` files must be `.tsx`/`.jsx`/`.ts`/`.js` — they define structural boundaries, not content, so MDX/Markdown isn't supported for these. `page` files and flat content routes (`about.*`, `login.*`, etc.) support `.mdx`/`.md` in addition to the four component extensions.
+Rules:
+
+- Files and directories prefixed with `_` or `.` are ignored.
+- The `api/` directory is excluded from page route scanning.
+- Directory traversal is capped at 100 levels.
+- `layout`, `template`, `loading`, `error`, and `not-found` files must be `.tsx`, `.jsx`, `.ts`, or `.js`. They define structure rather than content, so MDX and Markdown are not supported for them.
+- `page` files and flat content routes support `.mdx` and `.md` in addition to the four component extensions.
 
 ---
 
-## Pages
+## Routing
+
+### Pages
 
 ```tsx
-// src/app/dashboard/page.tsx — no imports needed
+// src/app/dashboard/page.tsx
 export default function Dashboard() {
   const [count, setCount] = useState(0)
   return <h1>Dashboard</h1>
 }
 ```
 
-Pages are scanned from flat files in a directory (e.g. `about.tsx` → `/about`) **and** from `page.*` files inside named subdirectories. Both forms are supported simultaneously, and both support `.mdx`/`.md` alongside the usual component extensions.
+Routes are collected from two forms, which may be used together:
 
-**Extension priority**, used whenever multiple files share the same base name (e.g. both `page.tsx` and `page.mdx` exist in the same folder):
+- **Folder pages:** a `page.*` file inside a named subdirectory (`dashboard/page.tsx` maps to `/dashboard`)
+- **Flat files:** any supported file directly in a directory (`about.tsx` maps to `/about`)
 
-```
-.tsx > .jsx > .ts > .js > .mdx > .md
-```
-
-The higher-priority file wins; the lower-priority one is simply ignored for that route. This applies identically to flat-file collisions (`about.tsx` + `about.mdx` in the same folder).
+Files named `index.*` map to the parent route, so `dashboard/index.tsx` maps to `/dashboard`. Reserved names (`page`, `layout`, `template`, `not-found`, `loading`, `error`) are never treated as flat routes.
 
 ### Dynamic routes
 
 ```tsx
-// src/app/blog/[slug]/page.tsx — useParams auto-imported
+// src/app/blog/[slug]/page.tsx
 export default function Post() {
   const { slug } = useParams()
   return <h1>Post: {slug}</h1>
 }
 ```
 
+Flat files work the same way: `blog/[slug].tsx` maps to `/blog/:slug`.
+
 ### Catch-all routes
 
 ```tsx
 // src/app/docs/[...path]/page.tsx
 export default function Docs() {
-  // matches /docs/anything/nested/here
+  // Matches /docs/anything/nested/here
   return <h1>Docs</h1>
 }
 ```
 
-> Route priority: static routes are matched before dynamic ones; dynamic routes before catch-alls. Routes are sorted by this priority and then by path length (shortest first).
+`[...name]` and the optional form `[[...name]]` both map to a wildcard (`*`) segment in the generated route.
+
+### Route groups
+
+A folder whose name is wrapped in parentheses groups routes without contributing a URL segment. Groups can carry their own layouts, loading files, and error files.
+
+```
+app/
+  (marketing)/
+    layout.tsx        Applies only to routes inside the group
+    about/page.tsx    /about
+  (app)/
+    layout.tsx
+    settings/page.tsx /settings
+```
+
+Group names must match `/^[a-zA-Z0-9_-]+$/`.
+
+### Route priority
+
+Routes are sorted so static routes match before dynamic ones, and dynamic routes before catch-alls. Within each category, shorter paths are placed first.
+
+### Conflicts and extension priority
+
+When two files resolve to the same URL (for example `page.tsx` and `page.mdx`, or `about.tsx` and `about/page.tsx`), bini-router reports a route conflict.
+
+- With `strictMode: true` (the default), a conflict fails the build and is logged as an error in development.
+- With `strictMode: false`, a warning is logged and one file is chosen: the route with the deeper layout chain wins, and ties are resolved by extension priority:
+
+```
+.tsx > .jsx > .ts > .js > .mdx > .md
+```
+
+Only files with a default export are treated as routes.
 
 ---
 
-## MDX & Markdown
+## Layouts
 
-`page.mdx`, `about.md`, and any other flat/content route can be written in MDX or plain Markdown instead of a React component — no setup required, `@mdx-js/rollup` is bundled inside bini-router.
+Layouts wrap all pages in their directory and subdirectories. bini-router walks up from each page to the app root to build the full layout chain.
 
-```mdx
-{/* src/app/about.mdx */}
+Every layout, including the root layout, is rendered as a React Router `<Route element>` wrapper that renders child routes through `<Outlet />`. Layouts also receive the current route `params` as a prop.
+
+```tsx
+// src/app/layout.tsx
 export const metadata = {
-  title: 'About',
+  title: 'My App',
+  description: 'Built with bini-router',
 }
 
+export default function RootLayout() {
+  return <Outlet />
+}
+```
+
+```tsx
+// src/app/dashboard/layout.tsx
+export const metadata = {
+  title: 'Dashboard',
+}
+
+export default function DashboardLayout({ params }) {
+  return (
+    <div className="dashboard">
+      <aside>Sidebar</aside>
+      <main><Outlet /></main>
+    </div>
+  )
+}
+```
+
+Notes:
+
+- Layouts that contain an `<html>` tag are treated as HTML shell files and excluded from the chain.
+- Layouts without a default export are excluded.
+- Circular layout chains are detected; a warning is logged and traversal stops at the repeated directory.
+- Layouts are bundled eagerly rather than lazily loaded.
+
+---
+
+## Templates
+
+A `template.tsx` file wraps each page in its scope. Like layouts, templates are resolved by walking up from the page directory. The nearest template with a default export is used.
+
+```tsx
+// src/app/dashboard/template.tsx
+export default function DashboardTemplate({ children }) {
+  return <section className="page-transition">{children}</section>
+}
+```
+
+Templates render inside the layout chain and directly around the page element. Templates containing an `<html>` tag are ignored.
+
+Templates only apply to routes inside the folder that declares them, and to its descendants. A template in `dashboard/settings/` does not affect `dashboard/page.tsx`. Templates receive `children` but not `params`.
+
+---
+
+## Loading, Not Found, and Error Boundaries
+
+`loading`, `not-found`, and `error` files all use nearest-wins resolution. A file in a subfolder affects only routes inside that subfolder and shadows the same file in ancestor folders. Routes with no closer match fall through to the nearest ancestor, and finally to a built-in default.
+
+### Loading
+
+```tsx
+// src/app/dashboard/loading.tsx
+export default function DashboardLoading() {
+  return <p>Loading dashboard...</p>
+}
+```
+
+The file is used as the Suspense fallback for pages and layouts in its scope. If none exists, a built-in spinner is used. It reads the `dark` class on `document.documentElement`, falls back to `prefers-color-scheme`, and updates live through a `MutationObserver`.
+
+### Not Found
+
+```tsx
+// src/app/blog/not-found.tsx
+export default function BlogNotFound() {
+  return (
+    <div>
+      <h1>Post not found</h1>
+      <Link to="/blog">Back to blog</Link>
+    </div>
+  )
+}
+```
+
+Every directory with its own `not-found.tsx` becomes a boundary for unmatched URLs under that subtree. React Router ranks routes by specificity, so deeper boundaries take precedence. Each boundary is wrapped in its folder's layout chain. If no folder defines one, a built-in 404 page is used at the root. Its "back to home" link respects the configured basename.
+
+### Error
+
+```tsx
+// src/app/dashboard/error.tsx
+export default function DashboardError({ error, reset }) {
+  return (
+    <div>
+      <h2>Something broke in the dashboard</h2>
+      <p>{error.message}</p>
+      <button onClick={reset}>Try again</button>
+    </div>
+  )
+}
+```
+
+The component receives `error` and `reset()`. Error boundaries also reset automatically when the pathname changes, so navigating away from a failed route recovers without a manual reset.
+
+Custom fallbacks render in both development and production. When no `error.tsx` exists in scope, the built-in fallback renders nothing in development (so Vite's error overlay is visible) and a generic "Something went wrong" screen with a retry button in production.
+
+In development, runtime errors are also dispatched as a `__bini_error__` `CustomEvent` on `window`, so external overlays such as `bini-overlay` can display them.
+
+---
+
+## MDX and Markdown
+
+`page.mdx`, `about.md`, and any other page or flat route can be written in MDX or Markdown.
+
+```mdx
 # About us
 
-This is regular **markdown**, rendered as JSX under the hood. You can also
-drop in real components:
+This is regular **markdown**, rendered as JSX. You can also use real components:
 
 <button className="rounded bg-cyan-500 px-4 py-2 text-white">
   Click me
 </button>
 ```
 
-- Both `.mdx` and `.md` are compiled through the same MDX pipeline (full JSX/import/export support in both — there's no plain-markdown-only mode)
-- `jsxImportSource` defaults to `react`
-- CSS Modules, plain CSS imports, and Tailwind utility classes all work directly in `.mdx`/`.md` files exactly like they would in a `.tsx` page
-- Auto-imports (`useState`, `Link`, `getEnv`, etc.) apply to `.mdx`/`.md` files the same as any other page
+- Both `.mdx` and `.md` are compiled through the same MDX pipeline, with full JSX, import, and export support in both.
+- `jsxImportSource` defaults to `react`.
+- CSS Modules, plain CSS imports, and Tailwind utility classes work as they do in `.tsx` pages.
+- Auto-imports and the `metadata` / `document` export handling are applied to script files only. In `.mdx` and `.md` files, import what you need explicitly.
 
-**Not supported in MDX/Markdown:** `layout`, `not-found`, `loading`, and `error` files — these must stay `.tsx`/`.jsx`/`.ts`/`.js`, since they define app structure rather than content.
-
-**Tailwind + Markdown note:** Tailwind's Preflight reset strips default styling from headings, bold text, and inline code — this is standard Tailwind behavior in *any* framework, not specific to bini-router. Wrap plain-markdown regions in a `prose` class (from `@tailwindcss/typography`) if you want them to look styled by default:
+Tailwind's Preflight reset removes default styling from headings, bold text, and inline code. Wrap Markdown regions in a `prose` class from `@tailwindcss/typography` if you want default typographic styling:
 
 ```mdx
 <div className="prose prose-slate">
 
-# This heading is now styled
+# This heading is styled
 
 </div>
 ```
 
 ### Customizing the MDX compiler
 
-Pass options straight through to the bundled `@mdx-js/rollup` plugin — useful for adding remark/rehype plugins:
+Options are passed straight through to `@mdx-js/rollup`:
 
 ```ts
 biniroute({
@@ -312,17 +455,100 @@ biniroute({
 
 ---
 
-## Layouts
+## Metadata
 
-Layouts wrap all pages in their directory and subdirectories. bini-router walks up the directory tree from each page to collect the full layout chain, stopping at the `appDir` root. Layouts must be `.tsx`/`.jsx`/`.ts`/`.js` — MDX is not supported for layouts.
+Export `metadata` from any layout or page (`.tsx`, `.jsx`, `.ts`, `.js`).
 
-All layouts — including the root layout — are rendered as React Router `<Route element>` wrappers using `<Outlet />`. The root layout receives child routes via `<Outlet />` exactly like nested layouts do.
+- **Root layout metadata** is injected into `index.html`.
+- **Layout and page titles** update `document.title` at runtime through a `TitleSetter` component.
+- The `metadata` export is stripped from the client bundle and never ships to the browser.
+
+```ts
+export const metadata = {
+  title: 'Dashboard',
+  description: 'Your personal dashboard',
+  viewport: 'width=device-width, initial-scale=1.0',
+  themeColor: '#00CFFF',
+  charset: 'UTF-8',
+  robots: 'index, follow',
+  manifest: '/site.webmanifest',
+  keywords: ['react', 'vite', 'dashboard'],   // array or string
+  author: 'Your Name',                        // string, or { name: 'Your Name' }
+  canonical: 'https://myapp.com/dashboard',
+  openGraph: {
+    title: 'Dashboard',
+    description: 'Your personal dashboard',
+    url: 'https://myapp.com/dashboard',
+    type: 'website',
+    images: [{ url: '/og.png' }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Dashboard',
+    description: 'Your personal dashboard',
+    creator: '@yourhandle',
+    images: ['/og.png'],
+  },
+  icons: {
+    icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }],
+    shortcut: [{ url: '/favicon.png' }],
+    apple: [{ url: '/apple-touch-icon.png', sizes: '180x180' }],
+  },
+}
+```
+
+All fields are optional. Metadata must be statically analyzable: string, number, boolean, array, and object literals (and template literals without expressions) are read; computed values and function calls are ignored.
+
+### Title templates
+
+A layout can define a title template that applies to all descendant pages and layouts:
+
+```ts
+// src/app/layout.tsx
+export const metadata = {
+  title: {
+    default: 'My App',
+    template: '%s | My App',
+  },
+}
+```
+
+```ts
+// src/app/dashboard/page.tsx
+export const metadata = { title: 'Dashboard' }
+// Resolves to "Dashboard | My App"
+```
+
+Title resolution rules:
+
+1. If the page defines a string title and a template exists in its layout chain, the nearest template is applied.
+2. Otherwise the page title is used as is.
+3. If the page has no title, the nearest layout title (string, or the `default` of a title object) is used.
+4. If nothing defines a title, the original `document.title` from `index.html` is restored.
+
+### Notes
+
+- Only the root layout's metadata is injected into `index.html` at build time. Every layout and page title is applied to `document.title` at runtime. All injected values are HTML-escaped.
+- `author` is read as a string or as an object with a `name` key. `openGraph.images` and `twitter.images` use only the first entry (a string or an object with `url`); a singular `image` key is also accepted.
+- Root-relative asset URLs (`manifest`, all `icons` groups, `canonical`, `openGraph` image, `twitter` image) are automatically prefixed with Vite's `base`. Absolute URLs, protocol-relative URLs, and `data:` URIs are left unchanged. `openGraph.url` is never prefixed.
+
+---
+
+## Document Export
+
+The root layout can export a `document` object to customize the HTML shell in `index.html`. This is enabled by default and can be disabled with the `document: false` option.
 
 ```tsx
-// src/app/layout.tsx — root layout
-export const metadata = {
-  title      : 'My App',
-  description: 'Built with bini-router',
+// src/app/layout.tsx
+export const document = {
+  html: { lang: 'en', class: 'dark' },
+  body: { class: 'antialiased' },
+  head: (
+    <>
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <script async src="https://example.com/analytics.js"></script>
+    </>
+  ),
 }
 
 export default function RootLayout() {
@@ -330,182 +556,121 @@ export default function RootLayout() {
 }
 ```
 
-```tsx
-// src/app/dashboard/layout.tsx — nested layout
-export const metadata = {
-  title: 'Dashboard',
-}
+| Key | Behavior |
+|---|---|
+| `html` | Attributes merged onto the `<html>` tag |
+| `body` | Attributes merged onto the `<body>` tag |
+| `head` | A JSX element or fragment converted to static HTML and appended before `</head>` |
 
-export default function DashboardLayout() {
-  return (
-    <div className="dashboard">
-      <aside>Sidebar</aside>
-      <main><Outlet /></main>
-    </div>
-  )
-}
-```
+Attribute merging rules:
 
-> Layouts that contain an `<html>` tag are automatically excluded from the chain (treated as HTML shell files, not route layouts).
-> Layouts without a default export are also excluded from the chain.
-> Circular layout dependencies are detected and throw a `CircularLayoutError`.
+- A `class` value is appended to any existing classes rather than replacing them.
+- Setting an attribute to `true` renders it as a boolean attribute.
+- Setting an attribute to `false`, `null`, or `undefined` removes it.
+- Other attributes overwrite existing values.
+- Attribute names in `html` and `body` are written as HTML names (`class`, not `className`).
+
+The `head` fragment is converted at build time, so it must be static. JSX attribute names are mapped to their HTML equivalents (`className` to `class`, `httpEquiv` to `http-equiv`, and so on), void elements are emitted correctly, and boolean attributes are handled. Dynamic expressions other than plain string literals are dropped.
+
+Like `metadata`, the `document` export is stripped from the client bundle.
 
 ---
 
-## Folder-scoped Loading, Not Found, and Error boundaries
+## Auto-imports
 
-`loading.tsx`, `not-found.tsx`, and `error.tsx` all use the same **nearest-wins** resolution as layouts: a file in a subfolder only affects routes/layouts inside that subfolder, and shadows (without deleting) the same file in any ancestor folder. Anything without a closer match falls through to the nearest ancestor that has one, all the way up to the root — and to a sensible built-in default if nothing exists anywhere.
+bini-router injects imports into script files (`.tsx`, `.jsx`, `.ts`, `.js`) so that common helpers are available without import statements.
 
-### Custom Loading Screen
+**From `react`:**
 
-```tsx
-// src/app/loading.tsx — applies everywhere by default
-export default function Loading() {
-  return (
-    <div className="flex items-center justify-center min-h-screen">
-      <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-blue-500" />
-    </div>
-  )
-}
+```
+useState  useEffect  useRef  useMemo  useCallback  useContext
+createContext  useReducer  useId  useTransition  useDeferredValue
+```
+
+**From `react-router-dom`:**
+
+```
+Link  NavLink  useNavigate  useParams  useLocation  useSearchParams  Outlet
+```
+
+**From `bini-env`:**
+
+```
+getEnv  requireEnv
 ```
 
 ```tsx
-// src/app/dashboard/loading.tsx — ONLY affects /dashboard/* Suspense boundaries
-export default function DashboardLoading() {
-  return <p>Loading dashboard…</p>
-}
-```
+// src/app/profile/page.tsx
+export default function Profile() {
+  const { id } = useParams()
+  const navigate = useNavigate()
+  const [user, setUser] = useState(null)
 
-If no `loading.tsx` exists in a route's own folder or any ancestor, the built-in dark-mode-aware spinner is used automatically (it reads `document.documentElement.classList` for a `dark` class, falls back to `prefers-color-scheme`, and updates live via a `MutationObserver`).
-
-### Custom 404 (Not Found)
-
-```tsx
-// src/app/blog/not-found.tsx — catches any unmatched /blog/* URL
-export default function BlogNotFound() {
-  return (
-    <div>
-      <h1>Post not found</h1>
-      <Link to="/blog">← Back to blog</Link>
-    </div>
-  )
-}
-```
-
-Every directory that defines its own `not-found.tsx` becomes a boundary — React Router ranks routes by specificity automatically, so a deeper boundary always wins over a shallower one for URLs under its subtree, with no manual ordering needed. Each boundary is wrapped in its own folder's layout chain, so layout metadata (page titles, etc.) still applies correctly when a scoped not-found renders. If no folder anywhere defines `not-found.tsx`, the built-in 404 page is used at the root.
-
-### Custom Error Boundaries
-
-```tsx
-// src/app/dashboard/error.tsx — catches errors thrown anywhere in /dashboard/*
-export default function DashboardError({ error, reset }: { error: Error; reset: () => void }) {
   return (
     <div>
-      <h2>Something broke in the dashboard</h2>
-      <p>{error.message}</p>
-      <button onClick={reset}>Try again</button>
+      <Link to="/">Home</Link>
+      <h1>Profile {id}</h1>
     </div>
   )
 }
 ```
 
-Your component receives `error` (the thrown `Error`) and `reset()` (clears the boundary's error state, re-rendering `children`). Custom error fallbacks render in **both** dev and production. If no `error.tsx` exists anywhere up the chain, the built-in fallback is used — it renders `null` in dev (so Vite's error overlay takes over) and a generic "Something went wrong" UI with a "Try again" button in production.
+Behavior:
 
-In development, runtime errors are also dispatched as a `__bini_error__` `CustomEvent` on `window` regardless of whether a custom fallback exists, so external dev overlays (e.g. `bini-overlay`) can display them.
+- Injection is based on AST analysis. A name is injected only when it is actually referenced and not already declared or imported in the file, so local variables and manual imports are never duplicated or shadowed.
+- By default, injection applies to every file under `src/`. Narrow the scope with the `autoImportDir` option (for example `src/app` for a Next.js-style, app-only behavior).
+- Files inside the API directory, the generated `App` file, and `.mdx` / `.md` files are excluded.
 
 ---
 
-## Metadata
+## Environment Variables
 
-Export `metadata` from any `layout.tsx`. Root layout metadata is injected into `index.html` at build time via `transformIndexHtml`. Nested layout titles update `document.title` at runtime via a `TitleSetter` component rendered inside the layout's Suspense boundary.
+bini-router pairs with [bini-env](https://www.npmjs.com/package/bini-env):
 
-> `export const metadata` is automatically stripped from the browser bundle by the `transform` hook — it never ships to the client.
+- **Client code:** use `import.meta.env.BINI_*` (the prefix is set by bini-env)
+- **API routes:** use `getEnv()` or `requireEnv()`
+- **Development:** `.env` is loaded automatically by Vite
+- **Production:** variables are read from the host environment
+
+```env
+# .env
+BINI_FIREBASE_API_KEY=your_key        # client-side
+SMTP_USER=user@smtp.example.com       # server-side
+SMTP_PASS=your_password
+```
 
 ```ts
-export const metadata = {
-  title       : 'Dashboard',
-  description : 'Your personal dashboard',
-  viewport    : 'width=device-width, initial-scale=1.0',
-  themeColor  : '#00CFFF',
-  charset     : 'UTF-8',
-  robots      : 'index, follow',
-  manifest    : '/site.webmanifest',
-  keywords    : ['react', 'vite', 'dashboard'],        // array or string
-  authors     : [{ name: 'Your Name' }],
-  canonical   : 'https://myapp.com/dashboard',
-  openGraph: {
-    title      : 'Dashboard',
-    description: 'Your personal dashboard',
-    url        : 'https://myapp.com/dashboard',
-    type       : 'website',
-    images     : [{ url: '/og.png' }],
-  },
-  twitter: {
-    card       : 'summary_large_image',
-    title      : 'Dashboard',
-    description: 'Your personal dashboard',
-    creator    : '@yourhandle',
-    images     : ['/og.png'],
-  },
-  icons: {
-    icon    : [{ url: '/favicon.svg', type: 'image/svg+xml' }],
-    shortcut: [{ url: '/favicon.png' }],
-    apple   : [{ url: '/apple-touch-icon.png', sizes: '180x180' }],
-  },
-}
+// src/app/api/email.ts
+const SMTP_USER = requireEnv('SMTP_USER')  // throws if missing
+const DEBUG = getEnv('DEBUG_MODE')         // undefined if missing
 ```
-
-All fields are optional. Only the root `layout.tsx` metadata is used for `index.html` injection. All metadata values are HTML-escaped before injection.
-
-> For `authors`, only the first entry's `name` is read into the `<meta name="author">` tag — extra keys (like a per-author `url`) and additional array entries aren't rendered. For `openGraph.images` / `twitter.images`, only the first entry's `url` is used — `width`/`height` and other keys are accepted but not emitted into HTML.
-
-> **Root-relative asset URLs are automatically prefixed with Vite's `base`** when your app is deployed under a sub-path (see [Base Path](#base-path) below). This applies to `manifest`, all three `icons` groups, `canonical`, `openGraph.images`, and `twitter.images`. `openGraph.url` is left untouched, since it's expected to be an absolute canonical page URL rather than a local asset path.
 
 ---
 
 ## API Routes
 
-Write your API files in `src/app/api/`. The same handler code runs in both `vite dev` and `vite preview`.
+Place API files in `src/app/api/`. The same handler code runs in `vite dev` and `vite preview`.
 
 Handlers can be either:
-- **A `.fetch(request)`-style app** — a [Hono](https://hono.dev) app works directly, since Hono apps expose a `.fetch` method, but this isn't Hono-specific: anything exporting an object with a `.fetch(request)` method is handled the same way.
-- **A plain function handler** — `(req: Request) => Response`, with zero extra dependencies.
 
-Route matching itself (static segments, `:param` segments, `*` catch-alls) is done by bini-router's own matcher before your handler is invoked — Hono (or any other framework) is optional and only used for whatever you build inside your own handler. This is the same `matchRoute()` function [exported for external use](#matching-a-concrete-url-against-the-manifest--matchroute--matchmanifestroute) below — API request dispatch and the public matching API share one implementation.
+- **A `.fetch(request)` object.** A [Hono](https://hono.dev) app works directly, but any object with a `.fetch` method is handled the same way.
+- **A plain function.** `(req: Request) => Response | Promise<Response>`, with no extra dependencies.
 
-API handlers are loaded on-demand and cached by `mtime` — touching a file in dev busts the cache immediately without a server restart.
+Route matching (static segments, `:param` segments, `*` catch-alls) is performed by bini-router's own matcher before your handler runs. This is the same `matchRoute()` function exported for external use.
 
-### Local testing
+### Route mapping
 
-Both `vite dev` and `vite preview` serve API routes identically. The dev server mounts a middleware at `/api` that strips the prefix before passing the request to your handler, so there is no difference in behavior between the two.
+| File | Route |
+|---|---|
+| `api/users.ts` | `/api/users` |
+| `api/posts/index.ts` | `/api/posts` |
+| `api/posts/[id].ts` | `/api/posts/:id` |
+| `api/[...catch].ts` | `/api/*` |
+| `api/(internal)/health.ts` | `/api/health` |
 
-```bash
-vite dev      # API routes live at http://localhost:3000/api/*
-vite preview  # same behaviour, served from the dist build
-```
+Route groups, dynamic directories, and catch-all directories are supported inside the API directory as well. API routes are ordered so that static routes are tried first, then dynamic routes, then catch-alls.
 
-### Hono app (optional, recommended for larger APIs)
-
-```ts
-// src/app/api/hello.ts
-import { Hono } from 'hono'
-
-const app = new Hono()
-
-app.all('/hello', (c) => {
-  return c.json({
-    message  : 'Hello from Bini.js!',
-    timestamp: new Date().toISOString(),
-    method   : c.req.method,
-  })
-})
-
-export default app
-```
-
-Write routes **without** the `/api` prefix — bini-router strips it before your handler sees the request in dev/preview. Requires `npm install hono` if you choose this style — it is not bundled with bini-router.
-
-### Plain function handlers (no extra dependencies)
+### Plain function handlers
 
 ```ts
 // src/app/api/hello.ts
@@ -514,184 +679,196 @@ export default function handler(req: Request) {
 }
 ```
 
-Route params are passed via the `x-bini-params` request header as a JSON string when using plain function handlers.
-
-### Dynamic API routes
+Route parameters are passed to plain function handlers as a JSON string in the `x-bini-params` request header:
 
 ```ts
 // src/app/api/posts/[id].ts
+export default function handler(req: Request) {
+  const params = JSON.parse(req.headers.get('x-bini-params') ?? '{}')
+  return Response.json({ id: params.id })
+}
+```
+
+### Hono apps
+
+```ts
+// src/app/api/hello.ts
 import { Hono } from 'hono'
 
 const app = new Hono()
-app.get('/posts/:id', (c) => c.json({ id: c.req.param('id') }))
+
+app.all('/hello', (c) => c.json({
+  message: 'Hello from Bini.js!',
+  method: c.req.method,
+}))
+
 export default app
 ```
 
+Write routes without the `/api` prefix; it is stripped before the handler sees the request. Hono is optional and must be installed separately (`npm install hono`).
+
+### Development and preview behavior
+
+- In development, handlers are loaded through Vite's `ssrLoadModule`, so edits take effect immediately.
+- In preview, handlers are imported on demand and cached by file modification time.
+- Requests are accepted at `/api/*` and, when Vite's `base` is set, at `<base>/api/*`. The prefix is stripped before dispatch.
+- The API middleware is always registered, and checks for the API directory at request time, so creating `api/` after startup works without a restart.
+- Supported methods are `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, and `HEAD`. Other methods receive `405 Method Not Allowed`.
+- Handler load failures and runtime exceptions return a generic `500` JSON response and are logged to the console.
+- Multiple `Set-Cookie` headers are preserved.
+
 ### Request body size limit
 
-Incoming request bodies to `/api/*` routes in dev/preview are capped at **1MB by default** to prevent unbounded memory buffering. Requests exceeding the limit receive a `413 Payload Too Large` response before the body is fully read. Adjust it with `bodySizeLimit` (in bytes):
+Request bodies are capped at 1 MB by default. Oversized requests receive `413 Payload Too Large`, based on both the `Content-Length` header and the actual streamed size. Adjust with `bodySizeLimit` (bytes):
 
 ```ts
-biniroute({ bodySizeLimit: 5 * 1024 * 1024 }) // 5MB
+biniroute({ bodySizeLimit: 5 * 1024 * 1024 })
 ```
 
 ### CORS
 
-CORS is **disabled by default** for `/api/*` routes in dev and preview. Enable it with `cors: true` for permissive defaults (`origin: '*'`, all standard methods, common headers), or pass an object to configure it precisely:
+CORS is disabled by default. Enable permissive defaults with `cors: true`, or configure it precisely:
 
 ```ts
-// Permissive — origin: '*', all standard methods
 biniroute({ cors: true })
 
-// Scoped — specific origin, methods, and headers
 biniroute({
   cors: {
-    origin : 'https://myapp.com',
+    origin: 'https://myapp.com',
     methods: ['GET', 'POST'],
     headers: ['Content-Type', 'Authorization'],
   },
 })
 ```
 
-Allowed methods checked against incoming requests regardless of CORS config: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `HEAD`. When CORS is enabled, preflight `OPTIONS` requests are handled automatically with a `204` response and a 24-hour `Access-Control-Max-Age`. When a specific (non-`*`) `origin` is configured, `Access-Control-Allow-Credentials: true` is set automatically.
+When enabled, preflight `OPTIONS` requests are answered automatically with `204` and a 24-hour `Access-Control-Max-Age`, and CORS headers are added to handler responses. When a specific (non-`*`) origin is configured, `Access-Control-Allow-Credentials: true` is set.
 
-> For production deployments, CORS on the generated hosting entry (Netlify/Vercel/Cloudflare/etc.) is configured separately by **bini-deploy** — check its docs for that target's default.
+For production CORS on generated hosting entries, see the [bini-deploy](https://www.npmjs.com/package/bini-deploy) documentation.
 
 ---
 
 ## Base Path
 
-Deploying under a sub-path (e.g. `https://example.com/my-app/`) is handled entirely through **Vite's own `base` config** — bini-router does not have a separate `basePath` option for prefixing the route tree; it reads Vite's resolved `base` (captured via the `configResolved` hook — the resolved value after CLI flags/config/env are all merged, so `vite build --base=/x/` is picked up correctly too) and derives everything below from it automatically.
+Deploying under a sub-path (for example `https://example.com/my-app/`) is driven by Vite's own `base` option. bini-router reads the resolved `base` (including values supplied via CLI flags such as `--base`) and derives everything from it.
 
 ```ts
 // vite.config.ts
 export default defineConfig({
-  base: '/my-app/',   // ← the only thing sub-path deployments need
+  base: '/my-app/',
   plugins: [react(), biniEnv(), ...biniroute()],
 })
 ```
 
-| What | How it's prefixed |
+| What | Behavior |
 |---|---|
-| `BrowserRouter` `basename` | Exported from the generated `App.tsx` as `basename`, set to Vite's resolved `base` |
-| Injected CSS `<link>` in `index.html` | Prefixed with `base` at build time |
-| `manifest`, `icon`/`shortcut`/`apple` icons, `canonical`, `og:image`, `twitter:image` | Root-relative URLs (starting with `/`) are prefixed with `base`; absolute URLs, protocol-relative URLs, `data:` URIs, and author-relative paths are left untouched |
-| Vite's own injected `<script type="module">` bundle tag | Handled by Vite core, not bini-router — already respects `base` |
+| `BrowserRouter` basename | Exported from the generated `App` as `basename`, derived from Vite's `base` |
+| Metadata URLs | Root-relative `manifest`, icons, `canonical`, `og:image`, and `twitter:image` are prefixed with `base` |
+| API routes | Served at `/api/*` and `<base>/api/*` |
+| Vite's script and asset tags | Handled by Vite itself |
 
-> Dev and preview always serve API routes at `/api/*` — the middleware is mounted directly at `/api`, independent of `base`.
-> If `base` is left at Vite's default (`/`), `basename` is `"/"` and no prefixing happens anywhere.
-> There's no option to prefix the internal route tree independently of `base` — the route tree is always scanned relative to `appDir`, and `base` only reaches it through `basename`.
+Relative bases (`./` or `.`) resolve to a basename of `/`.
 
-### Server-side rendering (`StaticRouter`) and pre-rendering scripts
+### Overriding the basename
 
-If you use `basename` with `StaticRouter` in a custom SSG/pre-render script, remember that — like `BrowserRouter` — it expects the `location` you pass in to already include the basename, not just the bare route path:
+Use the `basename` option to set the router basename independently of Vite's `base`:
+
+```ts
+biniroute({ basename: '/docs' })
+```
+
+A leading slash is added and trailing slashes are removed automatically.
+
+### StaticRouter and pre-rendering
+
+When using a non-root basename with `StaticRouter` in an SSG or pre-render script, the location passed in must include the basename:
 
 ```ts
 import { AppRoutes, basename } from './App'
 
-// location must be "/my-app/about", not just "/about", when base is "/my-app/"
-const fullUrl = url.startsWith(basename) ? url : `${basename.replace(/\/$/, '')}${url}`
+// With base "/my-app/", the location must be "/my-app/about", not "/about"
+const fullUrl = url.startsWith(basename)
+  ? url
+  : `${basename.replace(/\/$/, '')}${url}`
 ```
 
-Passing a bare route path (e.g. `/about`) while `basename` is a non-root value will cause `StaticRouter` to render nothing for that page, with a console warning along the lines of *"is not able to match the URL because it does not start with the basename"*.
+Passing a bare route path while the basename is non-root causes `StaticRouter` to render nothing and log a basename-mismatch warning.
 
 ---
 
-## Full options
+## Configuration Reference
 
 ```ts
 biniroute({
-  appDir       : 'src/app',      // Default: src/app
-  apiDir       : 'src/app/api',  // Default: src/app/api
-  cors         : false,          // Enable CORS on dev/preview API. Pass `true` for
-                                  //   permissive defaults, or an object
-                                  //   ({ origin?, methods?, headers? }) to scope it.
-                                  //   Default: false
-  strictMode   : true,           // Throw on route conflicts. Default: true
-  bodySizeLimit: 1024 * 1024,    // Max request body size (bytes) for dev/preview
-                                  //   API routes. Default: 1MB
-  mdx          : {},             // Passed through to the bundled @mdx-js/rollup
-                                  //   plugin — e.g. remarkPlugins, rehypePlugins.
-                                  //   Optional; sensible defaults are applied
-                                  //   without this.
+  appDir: 'src/app',
+  apiDir: 'src/app/api',
+  autoImportDir: 'src',
+  cors: false,
+  strictMode: true,
+  bodySizeLimit: 1024 * 1024,
+  document: true,
+  basename: undefined,
+  mdx: {},
 })
 ```
 
-> There is no `basePath` option — sub-path deployments are driven entirely by Vite's own `base` config (see [Base Path](#base-path) above).
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `appDir` | `string` | `'src/app'` | Directory containing file-based routes |
+| `apiDir` | `string` | `'src/app/api'` | Directory containing API routes |
+| `autoImportDir` | `string` | `'src'` | Directory where auto-imports are injected. Set to `'src/app'` to limit injection to route files |
+| `cors` | `boolean \| { origin?, methods?, headers? }` | `false` | CORS handling for dev and preview API routes |
+| `strictMode` | `boolean` | `true` | Fail on route conflicts. When `false`, conflicts are logged as warnings and resolved automatically |
+| `bodySizeLimit` | `number` | `1048576` | Maximum API request body size in bytes |
+| `document` | `boolean` | `true` | Process `export const document` from the root layout |
+| `basename` | `string` | derived from Vite `base` | Override the `BrowserRouter` basename |
+| `mdx` | `object` | `{}` | Options passed to the bundled `@mdx-js/rollup` plugin |
 
----
-
-## Deployment
-
-bini-router itself is deployment-agnostic — it only builds your routing tree, layouts, and dev/preview API serving. Generating platform-specific hosting config and production API entry files (Netlify, Vercel, Cloudflare, Node.js, Deno) is handled by the companion CLI, **[bini-deploy](https://www.npmjs.com/package/bini-deploy)**:
-
-```bash
-npm install --save-dev bini-deploy
-npx bini-deploy
-```
-
-See the [bini-deploy README](https://www.npmjs.com/package/bini-deploy) for platform-specific setup, generated file locations, and CORS/dependency behavior for each target.
-
----
-
-## HMR & File Watcher
-
-bini-router watches `src/app/` during development and regenerates `App.tsx` automatically. This applies to `.tsx`/`.jsx`/`.ts`/`.js` **and** `.mdx`/`.md` page files alike.
-
-- **New file** → regenerates after 300ms debounce
-- **New folder** → watched instantly; regenerates after 300ms if a `page.*` file appears within 300ms
-- **Changed file** → regenerates after 60ms debounce
-- **Deleted file or folder** → removed from routes and triggers reload
-- **Root layout change** → full module graph invalidation + full reload
-- **API file change** → clears module cache entry and route cache, triggers full reload
-- **Route manifest** (`virtual:bini-routes`) → invalidated alongside every route regeneration, so consumers of the virtual module never see stale route data mid-session
-- Events are deduplicated within a 500ms window per `file:event` key (TTL: 2s) to prevent redundant reloads
-- Code generation is guarded by an `isGenerating` flag — concurrent regenerations are dropped, not queued
-
-> You never need to restart the dev server when adding or removing routes.
+There is no separate `basePath` option. Sub-path deployments are controlled by Vite's `base` (see [Base Path](#base-path)).
 
 ---
 
 ## Route Manifest
 
-Route metadata (static routes, dynamic routes, per-route titles/layouts) is available two ways, depending on where you need it from.
+Route data is available in two ways depending on where you need it.
 
-### Inside app code — `virtual:bini-routes`
-
-Import the virtual module from anywhere Vite bundles — components, layouts, client code:
+### Inside app code: virtual:bini-routes
 
 ```ts
-import routes, { staticRoutes, dynamicRoutes, allRoutes, routeMetadata } from 'virtual:bini-routes'
+import routes, {
+  staticRoutes,
+  dynamicRoutes,
+  allRoutes,
+  routeMetadata,
+} from 'virtual:bini-routes'
 
-console.log(routes.static)    // ['/', '/about', '/dashboard', ...]
-console.log(routes.dynamic)   // ['/blog/:slug', ...]
-console.log(routes.metadata)  // { '/dashboard': { title, layouts, filePath, dynamic }, ... }
+console.log(routes.static)    // ['/', '/about', '/dashboard']
+console.log(routes.dynamic)   // ['/blog/:slug']
+console.log(routes.metadata)  // { '/dashboard': { title, dynamic }, ... }
 ```
 
-This only resolves inside Vite's own build/transform pipeline (app source, or another Vite plugin's bundled code) — it is **not** a real file and can't be `import()`-ed from plain Node scripts or from inside another plugin's own `buildStart`/`closeBundle` hooks, since those run in the plugin container itself, outside Vite's module graph.
+The virtual module resolves only within Vite's build and transform pipeline. It is not a real file and cannot be imported from plain Node scripts or from inside another plugin's own build hooks. For security, the client-facing metadata contains only `title` and `dynamic`; file paths and layout paths are not exposed.
 
-> TypeScript projects need an ambient module declaration for `virtual:bini-routes` (e.g. in a `vite-env.d.ts`) since it isn't a real file on disk.
+TypeScript projects need an ambient module declaration for `virtual:bini-routes`, for example in `vite-env.d.ts`.
 
-### From other build tools — `generateRouteManifest()`
+The module is invalidated whenever the generated route tree changes, so consumers never see stale data during development.
 
-For anything that needs route data from **outside** Vite's transform pipeline — a companion plugin's own plugin-container code, a standalone Node script, a CLI, an SSG generator — import the function directly from the package:
+### From other tools: generateRouteManifest()
 
 ```ts
 import { generateRouteManifest } from 'bini-router'
 
-const manifest = generateRouteManifest('src/app' /* appDir */)
+const manifest = generateRouteManifest('src/app')
+// Optional second argument: API directory (defaults to <appDir>/api)
 
-console.log(manifest.static)    // ['/', '/about', ...]
-console.log(manifest.dynamic)   // ['/blog/:slug', ...]
-console.log(manifest.all)       // static + dynamic combined
-console.log(manifest.metadata)  // per-route title/layouts/filePath/dynamic
+console.log(manifest.static)    // ['/', '/about']
+console.log(manifest.dynamic)   // ['/blog/:slug']
+console.log(manifest.all)       // static and dynamic combined
+console.log(manifest.metadata)  // per-route title, layouts, filePath, dynamic
 ```
 
-This is a plain synchronous function with no Vite dependency at call time — it reads the filesystem directly using the same scanning, extension-priority, and deduplication logic that powers the router itself, so results are always consistent with what actually gets rendered. It takes a single `appDir` argument (no `base`/`basePath` parameter) — the returned route paths are the raw scanned paths, not prefixed by Vite's `base`. Wrap the import in a `try/catch` if bini-router might not be installed, or might be an older version that predates this export.
+This is a plain synchronous function with no Vite dependency at call time. It reads the filesystem using the same scanning, deduplication, and title-resolution logic as the router, so results match what is actually rendered. Returned paths are raw scanned paths and are not prefixed by Vite's `base`. Use it from SSG generators, CLIs, sitemap builders, and companion plugins.
 
-### Matching a concrete URL against the manifest — `matchRoute()` / `matchManifestRoute()`
-
-`generateRouteManifest()` returns route *patterns* (e.g. `/blog/:slug`), not concrete URLs. To find out which pattern a real pathname like `/blog/hello-world` corresponds to — and whether it's static or dynamic — use `matchManifestRoute()`:
+### Matching URLs: matchManifestRoute() and matchRoute()
 
 ```ts
 import { generateRouteManifest, matchManifestRoute } from 'bini-router'
@@ -699,61 +876,189 @@ import { generateRouteManifest, matchManifestRoute } from 'bini-router'
 const manifest = generateRouteManifest('src/app')
 const result = matchManifestRoute(manifest, '/blog/hello-world')
 
-console.log(result)
 // { type: 'dynamic', routePath: '/blog/:slug', params: { slug: 'hello-world' } }
 ```
 
-`result.type` is one of `'static'`, `'dynamic'`, or `'not_found'`. For dynamic matches, `result.params` contains the extracted segment values (and `result.params['*']` for catch-all routes). This checks exact static matches first, then falls back to scanning `manifest.dynamic` patterns — the same matcher bini-router's own API route handler uses internally to dispatch requests in `src/app/api/`.
+`result.type` is `'static'`, `'dynamic'`, or `'not_found'`. Catch-all matches expose the remainder under `params['*']`.
 
-For lower-level use — matching a single pattern against a single path without a full manifest — call `matchRoute()` directly:
+For lower-level matching without a manifest:
 
 ```ts
 import { matchRoute } from 'bini-router'
 
-matchRoute('/blog/:slug', '/blog/hello-world')
-// { slug: 'hello-world' }
-
-matchRoute('/docs/*', '/docs/guide/setup')
-// { '*': 'guide/setup' }
-
-matchRoute('/about', '/contact')
-// null — no match
+matchRoute('/blog/:slug', '/blog/hello-world')  // { slug: 'hello-world' }
+matchRoute('/docs/*', '/docs/guide/setup')      // { '*': 'guide/setup' }
+matchRoute('/about', '/contact')                // null
 ```
 
-This is the exact function used to route incoming requests to the correct API handler, so results are always consistent with how bini-router's own dev/preview server behaves.
+Parameter values are URI-decoded, and any value containing `..` or `//` causes the match to fail. This is the same function used to dispatch API requests.
 
-**Typical use case:** dev tools that need to answer "is the page the user is currently viewing static or dynamic?" — for example, a dev overlay reading `window.location.pathname` and reporting route type without re-implementing bini-router's segment/param/catch-all matching itself.
+---
+
+## HMR and File Watcher
+
+bini-router watches the app directory during development and regenerates `App.tsx` automatically. No dev server restart is needed when adding or removing routes.
+
+| Event | Behavior |
+|---|---|
+| New page or special file | Regenerates after a 300 ms debounce |
+| Changed page or special file | Regenerates after a 60 ms debounce |
+| Deleted file or folder | Regenerates and reloads |
+| New folder | Watched immediately; regenerates if a `page.*` file appears within 300 ms |
+| Root layout change | Invalidates the full module graph and triggers a full reload |
+| Route regeneration | Invalidates `virtual:bini-routes` and triggers a full reload when the generated output changed |
+| API file added or removed | Clears route and module caches, then triggers a full reload |
+| API file changed | Clears the relevant cache entries; the next request uses the updated handler |
+| API directory created after startup | Detected and watched automatically |
+
+Regeneration is guarded by an `isGenerating` flag, so overlapping regenerations are dropped rather than queued. The generated file is only written when its content actually changes.
+
+---
+
+## Programmatic API
+
+bini-router exports a small, stable API for tooling that integrates with the router. [bini-ssg](https://www.npmjs.com/package/bini-ssg) and [bini-overlay](https://www.npmjs.com/package/bini-overlay) are the two in-tree consumers.
+
+### biniroute(options?): Plugin[]
+
+The Vite plugin factory. Spread the returned array into your `plugins` config.
+
+### generateRouteManifest(appDir, apiDir?): RouteManifest
+
+Scans `appDir` for the same files the router does and returns the route tree. See [Route Manifest](#route-manifest) for the shape.
+
+Contract:
+
+- Dynamic segments use `:name` syntax (`/users/:id`).
+- Catch-all segments use `*` (`/docs/*`).
+- Static segments are bare (`/about`).
+- Returned paths are never prefixed with Vite's `base`. Consumers that match against browser URLs must strip `base` first.
+- `apiDir` defaults to `<appDir>/api`.
+
+This contract is covered by unit tests. Changing it is a breaking change.
+
+### matchManifestRoute(manifest, pathname): RouteMatchResult
+
+Matches a base-stripped pathname against a manifest. Returns `{ type, routePath?, params? }`.
+
+### matchRoute(pattern, pathname): Record<string, string> | null
+
+Low-level matcher. Uses the same `:name` and `*` syntax as the manifest.
+
+### Types
+
+`BiniPluginOptions`, `RouteManifest`, `RouteMatchResult`, `MetaTags`, `IconEntry`, `TitleTemplate`, and `DocumentExport`.
+
+### Stability
+
+The exports listed above are stable and covered by tests. Internal helpers (route scanning, metadata parsing, the transform pipeline) are not exported and may change between minor versions without notice. If you need access to one, open an issue describing your use case.
 
 ---
 
 ## Exports
 
-| Export | Type | Purpose |
+| Export | Kind | Purpose |
 |---|---|---|
-| `biniroute(options?)` | function | Main Vite plugin array (routing + MDX) |
-| `generateRouteManifest(appDir)` | function | Scan the filesystem and return the route manifest |
-| `matchRoute(pattern, pathname)` | function | Match a single route pattern against a concrete pathname, returning extracted params or `null` |
-| `matchManifestRoute(manifest, pathname)` | function | Resolve a concrete pathname against a full manifest — returns `{ type, routePath?, params? }` |
+| `biniroute(options?)` | function | Vite plugin array (routing and MDX) |
+| `generateRouteManifest(appDir, apiDir?)` | function | Scan the filesystem and return the route manifest |
+| `matchRoute(pattern, pathname)` | function | Match one pattern against a pathname; returns params or `null` |
+| `matchManifestRoute(manifest, pathname)` | function | Resolve a pathname against a manifest |
+| `BiniPluginOptions` | type | Options accepted by `biniroute()` |
 | `RouteManifest` | type | Shape returned by `generateRouteManifest()` |
 | `RouteMatchResult` | type | Shape returned by `matchManifestRoute()` |
-| `BiniPluginOptions` | type | Options accepted by `biniroute()` |
-| `IconEntry` / `MetaTags` | type | Shapes used by the `metadata` export in layouts |
-| `Plugin` / `ViteDevServer` | type | Re-exported from `vite` for convenience |
+| `MetaTags` | type | Shape of the `metadata` export |
+| `TitleTemplate` | type | Shape of `{ default, template }` titles |
+| `IconEntry` | type | Shape of icon entries in `metadata.icons` |
+| `DocumentExport` | type | Shape of the `document` export |
+| `Plugin` / `ViteDevServer` | type | Re-exported from `vite` |
 
 ---
 
 ## Route Naming Rules
 
-bini-router validates all route segment names and dynamic parameter names at scan time:
+Route segments and parameters are validated at scan time:
 
-- Segment names must match `/^[a-zA-Z0-9_-]+$/` and be under 100 characters
-- Parameter names (inside `[brackets]`) must match `/^[a-zA-Z_][a-zA-Z0-9_]*$/`
-- Paths containing `..` or `//` are rejected (path traversal guard)
-- Invalid names are skipped with a warning — they never cause a crash
-- Decoded URL parameter values are also checked for `..` and `//` at request time
+- Static segment names must match `/^[a-zA-Z0-9_-]+$/` and be at most 100 characters
+- Parameter names inside brackets must match `/^[a-zA-Z_][a-zA-Z0-9_]*$/`
+- Route group names must match `/^[a-zA-Z0-9_-]+$/`
+- Names containing `..` or `//` are rejected
+- Invalid names are skipped with a warning and never cause a crash
+- Source files larger than 10 MB are ignored
+- Decoded URL parameter values are checked for `..` and `//` at request time
+
+---
+
+## Differences from Next.js
+
+bini-router borrows the App Router's conventions, but is a pure SPA with no server. The main differences:
+
+| | Next.js App Router | bini-router |
+|---|---|---|
+| Server components | Yes | No. Client only |
+| Data fetching in layouts | Server-side | Client-side only |
+| `middleware.ts` | Yes | No |
+| SSR / SSG | Built in | Client-side only; use a separate pre-rendering tool together with `generateRouteManifest()` |
+| API routes | Production (Node or edge) | Dev and preview; use [bini-deploy](https://www.npmjs.com/package/bini-deploy) for production |
+| Optional catch-all `[[...slug]]` | Yes | Yes |
+| Route groups `(name)` | Yes | Yes |
+| File-based routing | Folders with `page.tsx` only | Both `page.tsx` folders and flat files (`about.tsx`, `[id].tsx`) |
+| `template.tsx` | Remounts on navigation | Wrapper between the layout chain and the page |
+| `loading.tsx` / `error.tsx` / `not-found.tsx` | Nearest-wins | Nearest-wins |
+
+---
+
+## Troubleshooting
+
+**`virtual:bini-routes` is not resolving in TypeScript.**
+Add an ambient module declaration, for example in `vite-env.d.ts`:
+
+```ts
+declare module 'virtual:bini-routes' {
+  type RouteInfo = { title?: string; dynamic: boolean }
+  export const staticRoutes: string[]
+  export const dynamicRoutes: string[]
+  export const allRoutes: string[]
+  export const routeMetadata: Record<string, RouteInfo>
+  const manifest: {
+    static: string[]
+    dynamic: string[]
+    all: string[]
+    metadata: Record<string, RouteInfo>
+  }
+  export default manifest
+}
+```
+
+**A route is not being generated.**
+Check that the file has a default export, is not inside a `_` or `.` prefixed path, and is not inside the API directory. Run `generateRouteManifest('src/app')` in a Node script to see what the router sees.
+
+**A route conflict is failing my build.**
+Delete one of the conflicting files, or set `strictMode: false` to log a warning and let bini-router pick a winner (the route with the deeper layout chain, then extension priority).
+
+**The tab title is stale after navigation.**
+Add a `metadata.title` export to the page or a parent layout. If nothing in the chain defines a title, the original `document.title` from `index.html` is restored.
+
+**`src/App.tsx` exists but is not being updated.**
+bini-router only manages files that begin with its auto-generated header. Delete or move the existing file to let it take over.
+
+**Auto-imports are not working in an `.mdx` file.**
+Auto-imports apply to `.tsx`, `.jsx`, `.ts`, and `.js` files only. This is intentional: MDX and Markdown files are compiled by a separate pipeline. Import what you need explicitly in `.mdx` and `.md` files.
+
+---
+
+## Deployment
+
+bini-router is deployment-agnostic. It builds the routing tree, layouts, and dev/preview API serving. Platform-specific configuration and production API entry files (Netlify, Vercel, Cloudflare, Node.js, Deno) are generated by the companion CLI [bini-deploy](https://www.npmjs.com/package/bini-deploy):
+
+```bash
+npm install --save-dev bini-deploy
+npx bini-deploy
+```
+
+See the bini-deploy documentation for platform-specific setup.
 
 ---
 
 ## License
 
-MIT © [Binidu Ranasinghe](https://bini.js.org)
+MIT (c) [Binidu Ranasinghe](https://bini.js.org)
