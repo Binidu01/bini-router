@@ -8,7 +8,7 @@
 [![typescript](https://img.shields.io/badge/typescript-ready-3178c6?labelColor=0a0a0a&style=flat-square)](https://www.typescriptlang.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-00CFFF?labelColor=0a0a0a&style=flat-square)](https://github.com/binidu/bini-router/pulls)
 
-**File-based routing, nested layouts, templates, route groups, folder-scoped loading/error/404 boundaries, MDX pages, and Web-standard `Request -> Response` API routes for Vite.**
+**File-based routing, nested layouts, templates, route groups, parallel routes, intercepting routes, folder-scoped loading/error/404 boundaries, MDX pages, and Web-standard `Request -> Response` API routes for Vite.**
 
 Similar to the Next.js App Router, but a pure SPA with no server required.
 
@@ -49,21 +49,24 @@ Similar to the Next.js App Router, but a pure SPA with no server required.
 - **File-based routing.** `page.tsx` files inside folders and flat files such as `about.tsx` both map directly to URLs. `index.*` files map to their parent route.
 - **Dynamic, catch-all, and optional catch-all segments.** `[id]`, `[...slug]`, and `[[...slug]]` are supported for both folders and flat files.
 - **Route groups.** Folders wrapped in parentheses, such as `(marketing)`, organize files and share layouts without affecting the URL.
+- **Parallel routes.** Folders prefixed with `@`, such as `@sidebar`, define named route slots that resolve independently of the main route tree, with their own `default.tsx` fallback.
+- **Intercepting routes.** Folders prefixed with `(.)`, `(..)`, or `(...)` let a route "intercept" navigation to a nearby, sibling, or root-level path — the convention Next.js uses for things like photo-in-a-modal flows.
 - **Nested layouts.** Layouts wrap their segment and all children, and receive route `params` as a prop.
 - **Templates.** `template.tsx` files wrap individual pages inside the layout chain, using the same nearest-wins resolution as other special files.
 - **MDX and Markdown pages.** `.mdx` and `.md` content routes work out of the box. `@mdx-js/rollup` is bundled internally, so no separate install or Vite configuration is required.
-- **Folder-scoped boundaries.** `loading`, `not-found`, and `error` files use nearest-wins resolution. A file in a subfolder affects only that subfolder and shadows, without deleting, the same file in any ancestor.
+- **Folder-scoped boundaries.** `loading`, `not-found`, `error`, and `default` files use nearest-wins resolution. A file in a subfolder affects only that subfolder and shadows, without deleting, the same file in any ancestor.
 - **Per-route metadata.** `export const metadata` in layouts and pages sets `document.title` at runtime, with support for title templates. Root layout metadata is injected into `index.html`.
-- **Document export.** `export const document` in the root layout customizes attributes on `<html>` and `<body>` and appends markup to `<head>`.
+- **Document export.** `export const document` in the root layout customizes attributes on `<html>` and `<body>` and appends markup to `<head>`. The `head` fragment is parsed into a plain data structure at build time, not raw HTML strings, so there is no HTML-injection surface even for handwritten JSX.
 - **API routes.** Plain `Request -> Response` handlers in `src/app/api/`, served in dev and preview. Any object exposing a `.fetch(request)` method (such as a Hono app) is supported, as are plain functions.
 - **Auto-imports.** Common React, React Router, and environment helpers are available in `.tsx`, `.jsx`, `.ts`, and `.js` source files without explicit imports.
 - **Error isolation.** Every layout and page is wrapped in an error boundary that resets on navigation. A folder's own `error.tsx` can supply custom fallback UI.
-- **Code splitting.** Pages, loading files, error files, and not-found files are loaded through `React.lazy`.
+- **Code splitting.** Pages, layouts, loading files, error files, not-found files, and slot defaults are all loaded through `React.lazy`.
 - **AST-based analysis.** Source files are parsed with the Oxc parser rather than regular expressions, so metadata, exports, and auto-import detection are accurate.
 - **Hot reloading.** A debounced file watcher regenerates routes as files and folders are added, changed, or removed.
-- **Security.** Route segment validation, parameter name validation, path traversal guards, source file size limits, and a configurable API request body size limit.
+- **Security.** Route segment validation, parameter name validation, path traversal guards, source file size limits, host-header validation for API request URLs, and a configurable API request body size limit.
+- **Bounded resource usage.** The preview-mode API module cache is capped and evicts its oldest entry once full, so long-running preview processes don't accumulate handlers indefinitely.
 - **Programmatic route manifest and matching.** `generateRouteManifest()`, `matchRoute()`, and `matchManifestRoute()` are exported for SSG generators, dev overlays, sitemap builders, and other tooling.
-- **Deployment-base aware.** The router `basename` and every root-relative metadata URL respect Vite's `base` configuration, with an optional `basename` override.
+- **Deployment-base aware.** The router `basename` and every root-relative metadata URL respect Vite's `base` configuration.
 - **Zero configuration.** Works out of the box.
 - **JavaScript and TypeScript.** Both are supported and auto-detected from your project.
 
@@ -173,40 +176,52 @@ src/
   App.tsx                   Auto-generated by bini-router. Do not edit.
   app/
     layout.tsx              Root layout, global metadata, document export
-    template.tsx            Optional template wrapping every page
-    page.tsx                /
-    loading.tsx             Default loading UI
-    not-found.tsx           Default 404
-    error.tsx               Default error fallback
-    about.mdx               /about, written in MDX
+    template.tsx             Optional template wrapping every page
+    page.tsx                 /
+    loading.tsx               Default loading UI
+    not-found.tsx             Default 404
+    error.tsx                 Default error fallback
+    about.mdx                 /about, written in MDX
 
-    (marketing)/            Route group: no URL segment
-      layout.tsx            Layout shared by the group
+    (marketing)/             Route group: no URL segment
+      layout.tsx              Layout shared by the group
       pricing/
-        page.tsx            /pricing
+        page.tsx               /pricing
 
     dashboard/
-      layout.tsx            Nested layout for /dashboard/*
-      page.tsx              /dashboard
-      loading.tsx           Applies only to /dashboard/*
+      layout.tsx               Nested layout for /dashboard/*
+      page.tsx                 /dashboard
+      loading.tsx               Applies only to /dashboard/*
       [id]/
-        page.mdx            /dashboard/:id, written in MDX
+        page.mdx                 /dashboard/:id, written in MDX
+
+    @sidebar/                 Parallel route slot: no URL segment
+      default.tsx              Fallback rendered when no slot route matches
+      page.tsx                 Slot content for /
+      dashboard/
+        page.tsx                 Slot content for /dashboard
+
+    photo/
+      [id]/
+        page.tsx                 /photo/:id
+        (.)view/
+          page.tsx                 Intercepts navigation to a sibling /photo/[id]/view
 
     blog/
-      index.tsx             /blog
-      [slug].tsx            /blog/:slug
-      not-found.tsx         Applies only to /blog/*
+      index.tsx                 /blog
+      [slug].tsx                 /blog/:slug
+      not-found.tsx               Applies only to /blog/*
 
     docs/
       [...path]/
-        page.tsx            /docs/*
+        page.tsx                 /docs/*
 
     api/
-      users.ts              /api/users
+      users.ts                   /api/users
       posts/
-        index.ts            /api/posts
-        [id].ts             /api/posts/:id
-      [...catch].ts         /api/* catch-all
+        index.ts                   /api/posts
+        [id].ts                    /api/posts/:id
+      [...catch].ts               /api/* catch-all
 ```
 
 Rules:
@@ -214,7 +229,7 @@ Rules:
 - Files and directories prefixed with `_` or `.` are ignored.
 - The `api/` directory is excluded from page route scanning.
 - Directory traversal is capped at 100 levels.
-- `layout`, `template`, `loading`, `error`, and `not-found` files must be `.tsx`, `.jsx`, `.ts`, or `.js`. They define structure rather than content, so MDX and Markdown are not supported for them.
+- `layout`, `template`, `loading`, `error`, `not-found`, `global-error`, and `default` files must be `.tsx`, `.jsx`, `.ts`, or `.js`. They define structure rather than content, so MDX and Markdown are not supported for them.
 - `page` files and flat content routes support `.mdx` and `.md` in addition to the four component extensions.
 
 ---
@@ -236,7 +251,7 @@ Routes are collected from two forms, which may be used together:
 - **Folder pages:** a `page.*` file inside a named subdirectory (`dashboard/page.tsx` maps to `/dashboard`)
 - **Flat files:** any supported file directly in a directory (`about.tsx` maps to `/about`)
 
-Files named `index.*` map to the parent route, so `dashboard/index.tsx` maps to `/dashboard`. Reserved names (`page`, `layout`, `template`, `not-found`, `loading`, `error`) are never treated as flat routes.
+Files named `index.*` map to the parent route, so `dashboard/index.tsx` maps to `/dashboard`. Reserved names (`page`, `layout`, `template`, `not-found`, `loading`, `error`, `global-error`, `default`) are never treated as flat routes.
 
 ### Dynamic routes
 
@@ -260,7 +275,7 @@ export default function Docs() {
 }
 ```
 
-`[...name]` and the optional form `[[...name]]` both map to a wildcard (`*`) segment in the generated route.
+`[...name]` maps to a required wildcard (`*`) segment, and the optional form `[[...name]]` matches even when nothing follows. Required and optional catch-alls are tracked separately internally, so a required catch-all still 404s on an empty tail while an optional one renders.
 
 ### Route groups
 
@@ -276,15 +291,65 @@ app/
     settings/page.tsx /settings
 ```
 
-Group names must match `/^[a-zA-Z0-9_-]+$/`.
+Group names must match `/^[a-zA-Z0-9_-]+$/`. Folders that use the interception syntax (`(.)`, `(..)`, `(...)`, see below) are not treated as route groups even though they also start with a parenthesis.
+
+### Parallel routes
+
+A folder prefixed with `@`, such as `@sidebar` or `@modal`, defines a **slot**: a named subtree of routes that is resolved independently of the folder it lives in and does not add a segment to the URL.
+
+```
+app/
+  layout.tsx
+  page.tsx
+  @sidebar/
+    default.tsx         Rendered when the current URL matches nothing below
+    page.tsx             Slot content for /
+    settings/
+      page.tsx             Slot content for /settings
+```
+
+- Slot names must match `/^[a-zA-Z][a-zA-Z0-9_-]*$/`.
+- Every route inside a slot is scanned exactly like a normal route (dynamic segments, catch-alls, nested layouts, and templates all work the same way), it's simply tagged with its slot name instead of being added to the main route tree.
+- When nothing inside the slot matches the current URL, its nearest `default.tsx` (nearest-wins, same resolution as `loading`/`error`/`not-found`) is rendered. If no `default.tsx` exists anywhere in the slot's chain, a built-in "No Content" fallback is used.
+- Slot content is generated as its own internally-routed block (via a `SlotBoundary` wrapper) and is not injected as a named prop into layouts.
+
+> **Note:** Parallel routes are a newer addition. If you're relying on slot content rendering *simultaneously* with the matched main-tree page (the way Next.js parallel routes render alongside their siblings), verify this against your installed version before depending on it in production — the exact composition behavior between slots and the main route tree is still evolving. Treat it as experimental until you've confirmed it against your specific layout structure.
+
+### Intercepting routes
+
+A folder prefixed with `(.)`, `(..)`, or `(...)` "intercepts" navigation to a nearby route, rendering different content at that same URL depending on where the navigation came from — the same convention Next.js uses for things like opening a photo in a modal while preserving the underlying feed.
+
+| Prefix | Intercepts |
+|---|---|
+| `(.)name` | A sibling of the current segment (same level) |
+| `(..)name` | A route one level up |
+| `(...)name` | A route from the root of the app |
+
+```
+app/
+  feed/
+    page.tsx
+    photo/
+      [id]/
+        page.tsx        /feed/photo/:id — full photo page
+  photo/
+    [id]/
+      page.tsx          /photo/:id
+      (.)view/
+        page.tsx        Intercepts /photo/[id]/view at the same level
+```
+
+- The intercepting folder itself does not add a URL segment; the segment that follows it (`view` in the example above) does.
+- Only files with a default export inside an intercepting folder are treated as routes; an invalid or empty interception prefix is skipped with a warning rather than crashing the build.
+- Intercepting routes are compared for conflicts only against other routes at the same intercept level, so an intercepted path and its non-intercepted target are not reported as a conflict with each other.
 
 ### Route priority
 
-Routes are sorted so static routes match before dynamic ones, and dynamic routes before catch-alls. Within each category, shorter paths are placed first.
+Routes are matched in this order: static routes first, then dynamic (`:param`) routes, then required catch-alls (`*`), then optional catch-alls (`**`) last. Within a category, shorter paths are placed first.
 
 ### Conflicts and extension priority
 
-When two files resolve to the same URL (for example `page.tsx` and `page.mdx`, or `about.tsx` and `about/page.tsx`), bini-router reports a route conflict.
+When two files resolve to the same URL and the same intercept level (for example `page.tsx` and `page.mdx`, or `about.tsx` and `about/page.tsx`), bini-router reports a route conflict.
 
 - With `strictMode: true` (the default), a conflict fails the build and is logged as an error in development.
 - With `strictMode: false`, a warning is logged and one file is chosen: the route with the deeper layout chain wins, and ties are resolved by extension priority:
@@ -336,7 +401,7 @@ Notes:
 - Layouts that contain an `<html>` tag are treated as HTML shell files and excluded from the chain.
 - Layouts without a default export are excluded.
 - Circular layout chains are detected; a warning is logged and traversal stops at the repeated directory.
-- Layouts are bundled eagerly rather than lazily loaded.
+- Layouts are bundled eagerly rather than lazily loaded, except for the root layout's slot and boundary dependents, which follow the same lazy-loading rules as pages.
 
 ---
 
@@ -359,7 +424,7 @@ Templates only apply to routes inside the folder that declares them, and to its 
 
 ## Loading, Not Found, and Error Boundaries
 
-`loading`, `not-found`, and `error` files all use nearest-wins resolution. A file in a subfolder affects only routes inside that subfolder and shadows the same file in ancestor folders. Routes with no closer match fall through to the nearest ancestor, and finally to a built-in default.
+`loading`, `not-found`, `error`, and `default` (parallel-route slots only) files all use nearest-wins resolution. A file in a subfolder affects only routes inside that subfolder and shadows the same file in ancestor folders. Routes with no closer match fall through to the nearest ancestor, and finally to a built-in default.
 
 ### Loading
 
@@ -408,6 +473,17 @@ The component receives `error` and `reset()`. Error boundaries also reset automa
 Custom fallbacks render in both development and production. When no `error.tsx` exists in scope, the built-in fallback renders nothing in development (so Vite's error overlay is visible) and a generic "Something went wrong" screen with a retry button in production.
 
 In development, runtime errors are also dispatched as a `__bini_error__` `CustomEvent` on `window`, so external overlays such as `bini-overlay` can display them.
+
+### Default (parallel-route slots)
+
+```tsx
+// src/app/@sidebar/default.tsx
+export default function SidebarDefault() {
+  return <p>Nothing to show here for this page.</p>
+}
+```
+
+`default.tsx` only applies inside `@slot` folders (see [Parallel routes](#parallel-routes)). It's rendered whenever no route inside the slot matches the current URL. If a slot has no `default.tsx` anywhere in its chain, a built-in "No Content" placeholder is used instead.
 
 ---
 
@@ -560,7 +636,7 @@ export default function RootLayout() {
 |---|---|
 | `html` | Attributes merged onto the `<html>` tag |
 | `body` | Attributes merged onto the `<body>` tag |
-| `head` | A JSX element or fragment converted to static HTML and appended before `</head>` |
+| `head` | A JSX element or fragment converted to a static structure and appended before `</head>` |
 
 Attribute merging rules:
 
@@ -570,7 +646,7 @@ Attribute merging rules:
 - Other attributes overwrite existing values.
 - Attribute names in `html` and `body` are written as HTML names (`class`, not `className`).
 
-The `head` fragment is converted at build time, so it must be static. JSX attribute names are mapped to their HTML equivalents (`className` to `class`, `httpEquiv` to `http-equiv`, and so on), void elements are emitted correctly, and boolean attributes are handled. Dynamic expressions other than plain string literals are dropped.
+The `head` fragment is converted at build time, so it must be static. Instead of being turned into an HTML string directly, it's parsed into a small typed tree of element, text, and attribute nodes — so no part of it is ever produced as raw, unescaped HTML text at this stage. JSX attribute names are mapped to their HTML equivalents (`className` to `class`, `httpEquiv` to `http-equiv`, and so on), void elements are recognized, and boolean attributes are handled. Dynamic expressions other than plain string literals (and expression-free template literals) are dropped, with a one-time warning per file.
 
 Like `metadata`, the `document` export is stripped from the client bundle.
 
@@ -710,12 +786,13 @@ Write routes without the `/api` prefix; it is stripped before the handler sees t
 ### Development and preview behavior
 
 - In development, handlers are loaded through Vite's `ssrLoadModule`, so edits take effect immediately.
-- In preview, handlers are imported on demand and cached by file modification time.
+- In preview, handlers are imported on demand and cached by file path, modification time, and size, so unchanged files reuse the same module instance. This cache holds at most 500 entries and evicts the oldest one once full, so a long-running preview process won't accumulate handler modules indefinitely.
 - Requests are accepted at `/api/*` and, when Vite's `base` is set, at `<base>/api/*`. The prefix is stripped before dispatch.
 - The API middleware is always registered, and checks for the API directory at request time, so creating `api/` after startup works without a restart.
 - Supported methods are `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, and `HEAD`. Other methods receive `405 Method Not Allowed`.
 - Handler load failures and runtime exceptions return a generic `500` JSON response and are logged to the console.
 - Multiple `Set-Cookie` headers are preserved.
+- The request URL passed to your handler is built from the incoming `Host` header (or a validated `X-Forwarded-Host`/`X-Forwarded-Proto` pair) so `new URL(req.url)` behaves sensibly behind a proxy. An unrecognized or malformed host falls back to `localhost` rather than being trusted verbatim.
 
 ### Request body size limit
 
@@ -846,7 +923,7 @@ console.log(routes.dynamic)   // ['/blog/:slug']
 console.log(routes.metadata)  // { '/dashboard': { title, dynamic }, ... }
 ```
 
-The virtual module resolves only within Vite's build and transform pipeline. It is not a real file and cannot be imported from plain Node scripts or from inside another plugin's own build hooks. For security, the client-facing metadata contains only `title` and `dynamic`; file paths and layout paths are not exposed.
+The virtual module resolves only within Vite's build and transform pipeline. It is not a real file and cannot be imported from plain Node scripts or from inside another plugin's own build hooks. For security, the client-facing metadata contains only `title`, `dynamic`, and (when present) `catchallParamName`; file paths, layout paths, and slot names are not exposed.
 
 TypeScript projects need an ambient module declaration for `virtual:bini-routes`, for example in `vite-env.d.ts`.
 
@@ -863,10 +940,12 @@ const manifest = generateRouteManifest('src/app')
 console.log(manifest.static)    // ['/', '/about']
 console.log(manifest.dynamic)   // ['/blog/:slug']
 console.log(manifest.all)       // static and dynamic combined
-console.log(manifest.metadata)  // per-route title, layouts, filePath, dynamic
+console.log(manifest.metadata)  // per-route title, layouts, filePath, dynamic, slotName
 ```
 
 This is a plain synchronous function with no Vite dependency at call time. It reads the filesystem using the same scanning, deduplication, and title-resolution logic as the router, so results match what is actually rendered. Returned paths are raw scanned paths and are not prefixed by Vite's `base`. Use it from SSG generators, CLIs, sitemap builders, and companion plugins.
+
+Each manifest entry's `slotName` field identifies routes that live inside a `@slot` folder, so external tooling can distinguish main-tree routes from parallel-route slot content.
 
 ### Matching URLs: matchManifestRoute() and matchRoute()
 
@@ -947,7 +1026,7 @@ Low-level matcher. Uses the same `:name` and `*` syntax as the manifest.
 
 ### Types
 
-`BiniPluginOptions`, `RouteManifest`, `RouteMatchResult`, `MetaTags`, `IconEntry`, `TitleTemplate`, and `DocumentExport`.
+`BiniPluginOptions`, `RouteManifest`, `RouteMatchResult`, `RouteManifestEntry`, `HeadNode`, `MetaTags`, `IconEntry`, `TitleTemplate`, and `DocumentExport`.
 
 ### Stability
 
@@ -965,7 +1044,9 @@ The exports listed above are stable and covered by tests. Internal helpers (rout
 | `matchManifestRoute(manifest, pathname)` | function | Resolve a pathname against a manifest |
 | `BiniPluginOptions` | type | Options accepted by `biniroute()` |
 | `RouteManifest` | type | Shape returned by `generateRouteManifest()` |
+| `RouteManifestEntry` | type | Shape of a single manifest entry, including `slotName` and catch-all kind |
 | `RouteMatchResult` | type | Shape returned by `matchManifestRoute()` |
+| `HeadNode` | type | Shape of the parsed `document.head` structure (element / text / raw nodes) |
 | `MetaTags` | type | Shape of the `metadata` export |
 | `TitleTemplate` | type | Shape of `{ default, template }` titles |
 | `IconEntry` | type | Shape of icon entries in `metadata.icons` |
@@ -981,6 +1062,8 @@ Route segments and parameters are validated at scan time:
 - Static segment names must match `/^[a-zA-Z0-9_-]+$/` and be at most 100 characters
 - Parameter names inside brackets must match `/^[a-zA-Z_][a-zA-Z0-9_]*$/`
 - Route group names must match `/^[a-zA-Z0-9_-]+$/`
+- Parallel-route slot names (after the `@`) must match `/^[a-zA-Z][a-zA-Z0-9_-]*$/`
+- Intercepting-route folders must use exactly one of the `(.)`, `(..)`, or `(...)` prefixes, followed by a valid segment name
 - Names containing `..` or `//` are rejected
 - Invalid names are skipped with a warning and never cause a crash
 - Source files larger than 10 MB are ignored
@@ -1001,9 +1084,11 @@ bini-router borrows the App Router's conventions, but is a pure SPA with no serv
 | API routes | Production (Node or edge) | Dev and preview; use [bini-deploy](https://www.npmjs.com/package/bini-deploy) for production |
 | Optional catch-all `[[...slug]]` | Yes | Yes |
 | Route groups `(name)` | Yes | Yes |
+| Parallel routes `@slot` | Yes, injected into layouts as named props | Slot resolution and a `default.tsx` fallback are supported; slot content is not currently injected into layouts as named props the way Next.js does |
+| Intercepting routes `(.)`, `(..)`, `(...)` | Yes | Yes |
 | File-based routing | Folders with `page.tsx` only | Both `page.tsx` folders and flat files (`about.tsx`, `[id].tsx`) |
 | `template.tsx` | Remounts on navigation | Wrapper between the layout chain and the page |
-| `loading.tsx` / `error.tsx` / `not-found.tsx` | Nearest-wins | Nearest-wins |
+| `loading.tsx` / `error.tsx` / `not-found.tsx` / `default.tsx` | Nearest-wins | Nearest-wins |
 
 ---
 
@@ -1014,7 +1099,7 @@ Add an ambient module declaration, for example in `vite-env.d.ts`:
 
 ```ts
 declare module 'virtual:bini-routes' {
-  type RouteInfo = { title?: string; dynamic: boolean }
+  type RouteInfo = { title?: string; dynamic: boolean; catchallParamName?: string }
   export const staticRoutes: string[]
   export const dynamicRoutes: string[]
   export const allRoutes: string[]
@@ -1034,6 +1119,9 @@ Check that the file has a default export, is not inside a `_` or `.` prefixed pa
 
 **A route conflict is failing my build.**
 Delete one of the conflicting files, or set `strictMode: false` to log a warning and let bini-router pick a winner (the route with the deeper layout chain, then extension priority).
+
+**A slot's content isn't rendering where I expect.**
+Parallel-route (`@slot`) resolution is newer than the rest of the router. Confirm your slot has at least one matching route or a `default.tsx`, and check the generated `src/App.tsx` to see how the slot's routes were wired in for your specific layout — the composition model may not yet match what you'd expect from Next.js parallel routes.
 
 **The tab title is stale after navigation.**
 Add a `metadata.title` export to the page or a parent layout. If nothing in the chain defines a title, the original `document.title` from `index.html` is restored.
