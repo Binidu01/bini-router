@@ -3570,6 +3570,14 @@ export function biniroute(options: BiniPluginOptions = {}): Plugin[] {
     config(_, env) {
       st.isBuild = env.command === 'build';
       isPreview = Boolean((env as { isPreview?: boolean }).isPreview);
+      // Virtual modules don't exist on disk, so the dep-optimizer's scan
+      // (which runs before `configureServer` wires up `load()`) can't find
+      // them. Exclude them so Vite doesn't warn on every cold start.
+      return {
+        optimizeDeps: {
+          exclude: [VIRTUAL_APP_ID, VIRTUAL_ROUTES_ID],
+        },
+      };
     },
 
     configResolved(config) {
