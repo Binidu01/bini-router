@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  entry: ['src/index.ts', 'src/client.ts'],
   format: ['esm', 'cjs'],
   dts: true,
   clean: true,
@@ -9,7 +9,7 @@ export default defineConfig({
   splitting: false,
   treeshake: true,
   shims: true,
-  target: 'node20',  // Updated from node18 to node20 (matches your package.json engines)
+  target: 'node20',
   platform: 'node',
   external: [
     // vite
@@ -18,6 +18,10 @@ export default defineConfig({
     'react',
     'react-dom',
     'react-router-dom',
+    // error boundary — re-exported from client.ts, must stay external
+    // so users resolve it from bini-router's own dependency tree, not
+    // from the bundled dist output
+    'react-error-boundary',
     // hono (only needed packages)
     'hono',
     'hono/cors',
@@ -42,6 +46,6 @@ export default defineConfig({
   ],
   esbuildOptions(options) {
     options.platform = 'node';
-    options.target = 'node20';  // Explicitly set target
+    options.target = 'node20';
   },
 });
