@@ -1,6 +1,6 @@
 {
   "name": "bini-router",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "File-based routing, nested layouts, and API routes for Vite + React with MDX support",
   "author": "bini.js",
   "license": "MIT",
@@ -29,10 +29,15 @@
         "default": "./dist/client.cjs"
       }
     },
+    "./virtual": {
+      "types": "./virtual.d.ts",
+      "default": "./virtual.d.ts"
+    },
     "./package.json": "./package.json"
   },
   "files": [
     "dist",
+    "virtual.d.ts",
     "README.md",
     "LICENSE"
   ],
@@ -64,24 +69,12 @@
     "vite": "^8.0.0"
   },
   "peerDependenciesMeta": {
-    "bini-env": {
-      "optional": false
-    },
-    "react": {
-      "optional": false
-    },
-    "react-dom": {
-      "optional": false
-    },
-    "react-router-dom": {
-      "optional": false
-    },
-    "rolldown": {
-      "optional": true
-    },
-    "vite": {
-      "optional": false
-    }
+    "bini-env": { "optional": false },
+    "react": { "optional": false },
+    "react-dom": { "optional": false },
+    "react-router-dom": { "optional": false },
+    "rolldown": { "optional": true },
+    "vite": { "optional": false }
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
@@ -99,23 +92,9 @@
     "vite": "^8.0.0"
   },
   "keywords": [
-    "vite",
-    "vite-plugin",
-    "bini",
-    "bini.js",
-    "react",
-    "file-based-routing",
-    "routing",
-    "api-routes",
-    "layouts",
-    "metadata",
-    "mdx",
-    "markdown",
-    "oxc",
-    "react-19",
-    "react-error-boundary",
-    "rou3",
-    "node-fetch-server"
+    "vite", "vite-plugin", "bini", "bini.js", "react", "file-based-routing",
+    "routing", "api-routes", "layouts", "metadata", "mdx", "markdown",
+    "oxc", "react-19", "react-error-boundary", "rou3", "node-fetch-server"
   ],
   "repository": {
     "type": "git",
